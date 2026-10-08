@@ -1,0 +1,13 @@
+{
+  "servers": {
+    "auth0": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@auth0/auth0-mcp-server",
+        "run"
+      ]
+    }
+  }
+}
