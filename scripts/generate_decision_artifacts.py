@@ -492,7 +492,7 @@ def build_workbook(path: Path) -> None:
     ws7 = wb.create_sheet("هامش الأمان والتحليل الثنائي")
     ws7.sheet_view.rightToLeft = True
     ws7.append(
-        ["هامش الأمان: أكبر تغيير نسبي ±ε في كل الأوزان معًا يصمد أمامه الفائز. "
+        ["هامش الأمان: أكبر تغيير نسبي ±ε لكل وزن على حدة (في أي اتجاه ومهما كانت التركيبة) يصمد أمامه الفائز. "
          "الانقلاب الثنائي: رفع وزني معيارين بمقدار t لكل منهما مع تطبيع البقية."]
     )
     ws7.merge_cells(start_row=1, start_column=1, end_row=1, end_column=2 + len(CRITERIA))
@@ -658,7 +658,7 @@ def margin_line() -> str:
     if not rows:
         return "• الفائز يتفوق على كل المنافسين في كل المعايير"
     binding = min(rows, key=lambda m: m["epsilon"])
-    return f"• هامش الأمان: الفائز يصمد أمام تغيير نسبي ±{binding['epsilon'] * 100:.0f}% في كل الأوزان معًا"
+    return f"• هامش الأمان: الفائز يصمد أمام تغيير نسبي ±{binding['epsilon'] * 100:.0f}% لكل وزن على حدة، في أي تركيبة"
 
 
 def joint_line() -> str:
