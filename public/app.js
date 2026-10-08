@@ -83,6 +83,7 @@ async function connect(srv, btn) {
     renderInventory(srv, data);
     renderRunner();
     await loadServers();
+    await loadSessions(data.sessionId);
   } catch (err) {
     showResult({ error: err.message });
     btn.disabled = false;
@@ -254,8 +255,10 @@ async function runTool() {
       body: JSON.stringify({ tool: state.tool.name, args }),
     });
     showResult(data);
+    await loadSessions(data.sessionId);
   } catch (err) {
     showResult({ error: err.message });
+    await loadSessions();
   } finally {
     btn.disabled = false;
     btn.textContent = "Run tool";
@@ -292,6 +295,124 @@ function esc(value) {
   return String(value ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 }
 
+/* ---------- session history ---------- */
+
+async function loadSessions(preferId) {
+  const { sessions } = await api("/api/sessions?limit=50");
+  const select = $("session-select");
+  const previous = Number(select.value) || null;
+  select.innerHTML = "";
+
+  if (!sessions.length) {
+    select.append(new Option("no sessions yet", ""));
+    $("session-stats").innerHTML = "";
+    $("call-list").innerHTML = "";
+    setExportLinks(null);
+    return;
+  }
+
+  for (const s of sessions) {
+    const when = new Date(s.started_at).toLocaleString();
+    const live = s.ended_at ? "" : " · live";
+    select.append(new Option(`#${s.id} ${s.server_name} — ${s.call_count} calls · ${when}${live}`, s.id));
+  }
+
+  const target = [preferId, previous, sessions[0].id].find((id) => sessions.some((s) => s.id === Number(id)));
+  select.value = String(target);
+  await showSession(target);
+}
+
+async function showSession(id) {
+  const { session, calls } = await api(`/api/sessions/${id}`);
+  setExportLinks(id);
+
+  const avg = calls.length ? Math.round(session.total_ms / calls.length) : 0;
+  $("session-stats").innerHTML = [
+    stat(session.call_count, "calls"),
+    stat(session.error_count, "errors", session.error_count > 0),
+    stat(`${avg} ms`, "avg duration"),
+    stat(fmtBytes(session.bytes_in), "payload in"),
+    stat(fmtBytes(session.bytes_out), "payload out"),
+    stat(session.ended_at ? session.end_reason : "live", "state"),
+  ].join("");
+
+  const slowest = Math.max(1, ...calls.map((c) => c.duration_ms));
+  const list = $("call-list");
+  list.innerHTML = "";
+
+  for (const call of calls) {
+    const li = document.createElement("li");
+    li.className = "call " + (call.is_error ? "bad" : "ok");
+
+    const output = call.error
+      ? call.error
+      : (call.result?.content ?? []).map((p) => (p.type === "text" ? p.text : `[${p.type}]`)).join("\n");
+
+    li.innerHTML =
+      `<span class="seq">#${call.seq}</span>` +
+      `<span class="tool">${esc(call.tool)}` +
+      (call.replay_of ? ` <em>replay of #${call.replay_of}</em>` : "") +
+      `</span>` +
+      `<span class="num">${call.duration_ms} ms</span>` +
+      `<span class="num">↑${fmtBytes(call.bytes_in)}</span>` +
+      `<span class="num">↓${fmtBytes(call.bytes_out)}</span>`;
+
+    const replay = el("button", { className: "ghost", textContent: "Replay" });
+    replay.onclick = () => replayCall(call.id, replay);
+    li.append(replay);
+
+    const bar = document.createElement("span");
+    bar.className = "bar-wrap";
+    bar.innerHTML = `<span class="bar-fill" style="width:${(call.duration_ms / slowest) * 100}%"></span>`;
+    li.append(bar);
+
+    const out = document.createElement("div");
+    out.className = "out";
+    const pre = el("pre");
+    pre.textContent = truncate(output, 600) || "(no output)";
+    out.append(pre);
+    li.append(out);
+
+    list.append(li);
+  }
+}
+
+async function replayCall(id, btn) {
+  btn.disabled = true;
+  btn.textContent = "…";
+  try {
+    const data = await api(`/api/calls/${id}/replay`, { method: "POST" });
+    showResult(data);
+    await loadSessions(data.sessionId);
+  } catch (err) {
+    showResult({ error: err.message });
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Replay";
+  }
+}
+
+function setExportLinks(id) {
+  for (const [elId, format] of [["export-json", "json"], ["export-csv", "csv"]]) {
+    const node = $(elId);
+    node.href = id ? `/api/sessions/${id}/export?format=${format}` : "#";
+    node.setAttribute("aria-disabled", String(!id));
+  }
+}
+
+const stat = (value, label, bad = false) =>
+  `<div class="stat${bad ? " bad" : ""}"><b>${esc(value)}</b><span>${esc(label)}</span></div>`;
+
+function fmtBytes(n) {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  return `${(n / 1024 / 1024).toFixed(1)} MB`;
+}
+
+const truncate = (text, max) => (text.length > max ? `${text.slice(0, max)}\n… (${text.length} chars)` : text);
+
+$("session-select").onchange = (e) => e.target.value && showSession(e.target.value);
 $("run").onclick = runTool;
-$("refresh").onclick = loadServers;
+$("refresh").onclick = () => Promise.all([loadServers(), loadSessions()]);
 loadServers();
+loadSessions();

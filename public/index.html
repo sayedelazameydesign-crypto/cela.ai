@@ -55,6 +55,22 @@
           <div id="result" class="result" hidden></div>
         </div>
       </section>
+      <section class="panel timeline" id="timeline-panel">
+        <div class="row-head">
+          <h2>Session history</h2>
+          <div class="row-actions">
+            <select id="session-select"></select>
+            <a id="export-json" class="ghost link" href="#">Export JSON</a>
+            <a id="export-csv" class="ghost link" href="#">Export CSV</a>
+          </div>
+        </div>
+        <div id="session-stats" class="stats"></div>
+        <ol id="call-list" class="call-list"></ol>
+        <p class="hint footnote">
+          Byte counts measure MCP tool payloads. They are an input to model cost, not model token usage —
+          the MCP protocol carries no token accounting.
+        </p>
+      </section>
     </main>
 
     <script type="module" src="./app.js"></script>

@@ -9,6 +9,8 @@ npm install
 npm start          # http://localhost:3000  (override with PORT=…)
 ```
 
+**Status:** Phase 1 ("glass box") is shipped — see [`docs/roadmap.md`](docs/roadmap.md).
+
 ## What it does
 
 - **Reads every config format in the repo** — `.mcp.json`, `.cursor/mcp.json`
@@ -21,6 +23,12 @@ npm start          # http://localhost:3000  (override with PORT=…)
 - **Builds a form per tool** from its `inputSchema`: text, number, boolean,
   enum (`select`) and JSON textareas for objects/arrays. Required fields are
   validated client-side; empty optional fields are omitted rather than sent as `""`.
+- **Persists every session and call** to SQLite (`data/cela.db`, via built-in
+  `node:sqlite` — no native dependencies): duration, payload bytes, args, result
+  or error. Failed calls are recorded too.
+- **Timeline, replay and export.** Browse past sessions, re-run any stored call
+  against a live connection (linked to the original for comparison), and export
+  a session as JSON or CSV.
 - **Shows real failures.** If a server dies during startup its stderr is captured
   and returned instead of a bare "connection closed", which is what you actually
   need to debug an MCP launch.
@@ -31,6 +39,7 @@ npm start          # http://localhost:3000  (override with PORT=…)
 | --- | --- |
 | `src/server.js` | Express API + static hosting |
 | `src/config.js` | Discovers and normalises server definitions |
+| `src/db.js` | SQLite schema, session/call recording, queries |
 | `src/mcp-manager.js` | Connection lifecycle, inventory, tool calls, stderr capture |
 | `mcp-servers/demo.js` | Bundled demo MCP server (`echo`, `list_files`, `read_file`, `repo_summary`) |
 | `public/` | Vanilla JS front end, no build step |
@@ -44,6 +53,10 @@ npm start          # http://localhost:3000  (override with PORT=…)
 | `POST` | `/api/servers/:name/disconnect` |
 | `GET` | `/api/servers/:name/inventory` |
 | `POST` | `/api/servers/:name/call` — body `{ "tool": "...", "args": { } }` |
+| `GET` | `/api/sessions` |
+| `GET` | `/api/sessions/:id` — session + full call timeline |
+| `GET` | `/api/sessions/:id/export?format=json\|csv` |
+| `POST` | `/api/calls/:id/replay` |
 
 ## The two servers you'll see
 
@@ -66,6 +79,9 @@ verbatim. See [`docs/mcp-auth0.md`](docs/mcp-auth0.md).
 
 ## Scope / caveats
 
+- **Byte counts are not token counts.** This console sits between an MCP client
+  and an MCP server; the protocol carries no LLM usage data. Payload size drives
+  model cost but is not model cost. Anything claiming otherwise would be invented.
 - stdio servers only; remote (`url` / `type: "http"`) entries are listed as a
   config note rather than connected to.
 - Connections live in the console process memory and are closed on shutdown.

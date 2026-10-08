@@ -1,6 +1,7 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { ROOT } from "./config.js";
+import { openSession, closeSession, recordCall } from "./db.js";
 
 const CONNECT_TIMEOUT_MS = 90_000;
 const MAX_LOG_LINES = 200;
@@ -13,6 +14,7 @@ export function sessionState(name) {
   if (!session) return { connected: false };
   return {
     connected: true,
+    sessionId: session.sessionId,
     connectedAt: session.connectedAt,
     serverInfo: session.info.serverInfo,
     capabilities: session.info.capabilities,
@@ -74,15 +76,33 @@ export async function connect(spec) {
     if (log.length > MAX_LOG_LINES) log.splice(0, log.length - MAX_LOG_LINES);
   });
 
+  const info = {
+    serverInfo: client.getServerVersion(),
+    capabilities: client.getServerCapabilities(),
+  };
+
+  const sessionId = openSession({
+    serverName: spec.name,
+    command: [spec.command, ...spec.args].join(" "),
+    serverInfo: info.serverInfo,
+    capabilities: info.capabilities,
+  });
+
+  // A server that dies mid-session must not leave the history claiming it is live.
+  transport.onclose = () => {
+    if (sessions.get(spec.name)?.sessionId === sessionId) {
+      sessions.delete(spec.name);
+      closeSession(sessionId, "server exited");
+    }
+  };
+
   sessions.set(spec.name, {
     client,
     transport,
     log,
+    sessionId,
     connectedAt: new Date().toISOString(),
-    info: {
-      serverInfo: client.getServerVersion(),
-      capabilities: client.getServerCapabilities(),
-    },
+    info,
   });
 
   return sessionState(spec.name);
@@ -92,6 +112,7 @@ export async function disconnect(name) {
   const session = sessions.get(name);
   if (!session) return;
   sessions.delete(name);
+  closeSession(session.sessionId, "disconnected");
   await session.client.close().catch(() => {});
 }
 
@@ -117,9 +138,21 @@ export async function inventory(name) {
   return result;
 }
 
-export async function callTool(name, tool, args) {
-  const { client } = requireSession(name);
-  return client.callTool({ name: tool, arguments: args ?? {} });
+/** Call a tool and persist the attempt — successes and failures alike. */
+export async function callTool(name, tool, args, { replayOf = null } = {}) {
+  const { client, sessionId } = requireSession(name);
+  const started = performance.now();
+
+  try {
+    const result = await client.callTool({ name: tool, arguments: args ?? {} });
+    const durationMs = performance.now() - started;
+    const callId = recordCall({ sessionId, tool, args, result, durationMs, replayOf });
+    return { callId, sessionId, result, durationMs: Math.round(durationMs) };
+  } catch (err) {
+    const durationMs = performance.now() - started;
+    recordCall({ sessionId, tool, args, error: err.message, durationMs, replayOf });
+    throw err;
+  }
 }
 
 export async function shutdownAll() {
