@@ -13,6 +13,12 @@ Usage (from the repository root):
 Outputs:
     <out-dir>/decision-model.xlsx
     <out-dir>/decision-model.pptx
+
+Note: the workbook stores formulas only. openpyxl does not write cached
+values, so Excel computes them on open, but viewers that read cached values
+(e.g. some previews, Google Sheets imports, pandas/openpyxl data_only=True)
+may show blank cells. Open the file once in Excel or LibreOffice to store the
+computed values.
 """
 
 from __future__ import annotations
