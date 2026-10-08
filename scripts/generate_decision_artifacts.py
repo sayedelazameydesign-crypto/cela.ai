@@ -222,11 +222,21 @@ def nearest_tipping_point() -> tuple[str, float, str] | None:
 
 def safety_margin() -> list[dict]:
     """Largest relative change ε such that the winner survives every combination of
-    weights w_i·(1 ± ε), after renormalisation, for each rival.
+    weights w_i·(1 + δ_i), |δ_i| ≤ ε, followed by renormalisation, for each rival.
+
+    Model (explicit): each weight is perturbed multiplicatively and independently,
+    then all weights are renormalised to sum to 1. This is NOT the same as an
+    additive perturbation w_i + δ_i with Σδ_i = 0. The additive model admits a
+    larger margin (≈ 46% in the example), so the value reported here is a
+    conservative lower bound for that model.
 
     The gap G(P,Q) = Σ w_i·g_i (g_i = s_iP − s_iQ) is linear in the weights. Its worst
-    case over w_i·(1 + ε·s_i), s_i ∈ [−1, 1], is G − ε·Σ w_i·|g_i|, so the exact
-    margin is ε* = G / Σ w_i·|g_i|. Normalisation keeps the sign, so it does not affect ε*.
+    case over δ_i ∈ [−ε, ε] is G − ε·Σ w_i·|g_i|, so the exact margin is
+    ε* = G / Σ w_i·|g_i|. Renormalisation divides by a positive total, so it does not
+    change the sign of the gap and does not affect ε*.
+
+    Special case: if g_i > 0 for every i (the winner is at least as good on every
+    criterion), then Σ w_i·|g_i| = G and ε* = 1, i.e. no change within [0, 1] can flip it.
     """
     base_weights = [w for _, w, _ in CRITERIA]
     scores = _scores_for(base_weights)
