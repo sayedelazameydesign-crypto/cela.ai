@@ -864,6 +864,7 @@ def _render_pptx(outline: list[dict], path: Path) -> None:
 
     path.parent.mkdir(parents=True, exist_ok=True)
     prs.save(path)
+    _freeze_zip_timestamps(path)
 
 
 def _render_slides_md(outline: list[dict], path: Path) -> None:
