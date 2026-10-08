@@ -62,6 +62,9 @@ PROBLEM = {
 }
 
 # (criterion, weight, note)
+# ASSUMPTION: every criterion is treated as "higher is better". For cost, time or risk,
+# convert the raw value before entering it (e.g. 10 - x) and say so in the note field.
+# Direction support is a deferred item in docs/decision-model/production-plan.md.
 CRITERIA = [
     ("التكلفة", 0.25, ""),
     ("الوصول للجمهور المستهدف", 0.30, ""),
