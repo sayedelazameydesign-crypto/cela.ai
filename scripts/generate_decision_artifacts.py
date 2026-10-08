@@ -220,6 +220,100 @@ def nearest_tipping_point() -> tuple[str, float, str] | None:
     return None if best is None else (best[1], best[2], best[3])
 
 
+def safety_margin() -> list[dict]:
+    """Largest relative change ε such that the winner survives every combination of
+    weights w_i·(1 ± ε), after renormalisation, for each rival.
+
+    The gap G(P,Q) = Σ w_i·g_i (g_i = s_iP − s_iQ) is linear in the weights. Its worst
+    case over w_i·(1 + ε·s_i), s_i ∈ [−1, 1], is G − ε·Σ w_i·|g_i|, so the exact
+    margin is ε* = G / Σ w_i·|g_i|. Normalisation keeps the sign, so it does not affect ε*.
+    """
+    base_weights = [w for _, w, _ in CRITERIA]
+    scores = _scores_for(base_weights)
+    p = winner_index(scores)
+    out = []
+    for q in range(len(ALTERNATIVES)):
+        if q == p:
+            continue
+        g = [SCORES[i][p] - SCORES[i][q] for i in range(len(CRITERIA))]
+        gap = sum(base_weights[i] * g[i] for i in range(len(CRITERIA)))
+        spread = sum(base_weights[i] * abs(g[i]) for i in range(len(CRITERIA)))
+        eps = gap / spread
+        if eps >= 1 - 1e-12:
+            # Winner is at least as good on every criterion: no weight change can flip it.
+            out.append(
+                {"rival": ALTERNATIVES[q], "winner": ALTERNATIVES[p], "epsilon": 1.0,
+                 "worst_weights": None, "worst_gap": None}
+            )
+            continue
+        # Worst-case direction: raise weights where the winner trails, lower where it leads.
+        signs = [(-1 if gi > 0 else (1 if gi < 0 else 0)) for gi in g]
+        worst = [base_weights[i] * (1 + eps * signs[i]) for i in range(len(CRITERIA))]
+        total = sum(worst)
+        worst = [x / total for x in worst]
+        out.append(
+            {
+                "rival": ALTERNATIVES[q],
+                "winner": ALTERNATIVES[p],
+                "epsilon": eps,
+                "worst_weights": worst,
+                "worst_gap": _gap_at(worst, p, q),
+            }
+        )
+    return out
+
+
+def _gap_at(weights: list[float], p: int, q: int) -> float:
+    s = _scores_for(weights)
+    return s[p] - s[q]
+
+
+def _joint_scores(pair: tuple[int, int], t: float) -> list[float]:
+    """Raise the weights of two criteria by t each; rescale the rest proportionally."""
+    base = [w for _, w, _ in CRITERIA]
+    k = set(pair)
+    locked = sum(base[i] for i in k)
+    factor = (1 - locked - len(k) * t) / (1 - locked)
+    weights = [base[i] + t if i in k else base[i] * factor for i in range(len(CRITERIA))]
+    return _scores_for(weights)
+
+
+def joint_tipping(pair: tuple[int, int]) -> tuple[int, float] | None:
+    """Smallest t > 0 at which the base winner is overtaken, with the new winner index.
+
+    Scores are affine in t, so the crossing is exact: evaluate at t = 0 and t = 1.
+    """
+    base_winner = winner_index(_scores_for([w for _, w, _ in CRITERIA]))
+    a = _joint_scores(pair, 0.0)
+    b = [x - y for x, y in zip(_joint_scores(pair, 1.0), a)]  # slope per unit t
+    t_max = (1 - sum(CRITERIA[i][1] for i in pair)) / len(pair)
+    best = None
+    for j in range(len(ALTERNATIVES)):
+        if j == base_winner:
+            continue
+        denom = b[j] - b[base_winner]
+        if abs(denom) < 1e-12:
+            continue
+        t = (a[base_winner] - a[j]) / denom
+        if 0 < t <= t_max and (best is None or t < best[1]):
+            best = (j, t)
+    return best
+
+
+def joint_pairs() -> list[dict]:
+    rows = []
+    for i in range(len(CRITERIA)):
+        for j in range(i + 1, len(CRITERIA)):
+            tip = joint_tipping((i, j))
+            rows.append(
+                {
+                    "pair": (CRITERIA[i][0], CRITERIA[j][0]),
+                    "tipping": tip,
+                }
+            )
+    return rows
+
+
 def _fmt(x: float) -> str:
     return f"{x:.2f}"
 
@@ -394,7 +488,39 @@ def build_workbook(path: Path) -> None:
             cell.alignment = CENTER
     _set_widths(ws6s, [28, 12] + [11] * len(SWEEP_VALUES) + [18, 14])
 
-    # Sheet 7: implementation and follow-up
+    # Sheet 7: safety margin and joint tipping points (computed values)
+    ws7 = wb.create_sheet("هامش الأمان والتحليل الثنائي")
+    ws7.sheet_view.rightToLeft = True
+    ws7.append(
+        ["هامش الأمان: أكبر تغيير نسبي ±ε في كل الأوزان معًا يصمد أمامه الفائز. "
+         "الانقلاب الثنائي: رفع وزني معيارين بمقدار t لكل منهما مع تطبيع البقية."]
+    )
+    ws7.merge_cells(start_row=1, start_column=1, end_row=1, end_column=2 + len(CRITERIA))
+    ws7.cell(row=1, column=1).font = Font(italic=True)
+    ws7.append(["المنافس", "هامش الأمان ε*"] + [f"أسوأ وزن: {n}" for n, _, _ in CRITERIA] + ["الفارق عند أسوأ حالة"])
+    _style_header(ws7, 2, 3 + len(CRITERIA))
+    for m in safety_margin():
+        ws7.append(
+            [m["rival"], f"{m['epsilon'] * 100:.1f}%"]
+            + ([f"{x:.3f}" for x in m["worst_weights"]] if m["worst_weights"] else ["—"] * len(CRITERIA))
+            + ([f"{m['worst_gap']:.2f}"] if m["worst_gap"] is not None else ["لا ينقلب"])
+        )
+    # Leave one blank row, then the joint-tipping table.
+    joint_header_row = ws7.max_row + 2
+    for col, text in enumerate(["المعيار الأول", "المعيار الثاني", "نقطة الانقلاب المشتركة t", "الفائز بعدها"], start=1):
+        ws7.cell(row=joint_header_row, column=col, value=text)
+    _style_header(ws7, joint_header_row, 4)
+    for r in joint_pairs():
+        tip = r["tipping"]
+        ws7.append(
+            [r["pair"][0], r["pair"][1], f"{tip[1]:.4f}" if tip else "لا يوجد", ALTERNATIVES[tip[0]] if tip else "—"]
+        )
+    for row in ws7.iter_rows(min_row=3, max_row=ws7.max_row, min_col=1, max_col=3 + len(CRITERIA)):
+        for cell in row:
+            cell.alignment = CENTER
+    _set_widths(ws7, [26, 22] + [18] * len(CRITERIA) + [18])
+
+    # Sheet 8: implementation and follow-up
     ws6 = wb.create_sheet("خطة التنفيذ والمتابعة")
     ws6.sheet_view.rightToLeft = True
     ws6.append(["النشاط", "المسؤول", "الموعد", "الموارد", "مؤشر النجاح", "الحالة"])
@@ -464,6 +590,26 @@ def build_csv(out_dir: Path) -> None:
         )
     write("07-sweep.csv", sweep_rows)
 
+    margin_rows = [["المنافس", "هامش الأمان ε*"] + [f"أسوأ وزن: {n}" for n, _, _ in CRITERIA] + ["الفارق عند أسوأ حالة"]]
+    for m in safety_margin():
+        if m["worst_weights"] is None:
+            margin_rows.append([m["rival"], "100%"] + ["—"] * len(CRITERIA) + ["لا ينقلب"])
+        else:
+            margin_rows.append(
+                [m["rival"], f"{m['epsilon'] * 100:.1f}%"]
+                + [f"{x:.3f}" for x in m["worst_weights"]]
+                + [f"{m['worst_gap']:.2f}"]
+            )
+    write("08-margin.csv", margin_rows)
+
+    joint_csv = [["المعيار الأول", "المعيار الثاني", "نقطة الانقلاب المشتركة t", "الفائز بعدها"]]
+    for r in joint_pairs():
+        tip = r["tipping"]
+        joint_csv.append(
+            [r["pair"][0], r["pair"][1], f"{tip[1]:.4f}" if tip else "لا يوجد", ALTERNATIVES[tip[0]] if tip else "—"]
+        )
+    write("09-joint.csv", joint_csv)
+
 
 # ---------------------------------------------------------------------------
 # PowerPoint deck
@@ -504,6 +650,25 @@ def _add_body(slide, lines: list[str], top: float = 1.7, height: float = 5.0, si
     box = slide.shapes.add_textbox(Inches(0.7), Inches(top), Inches(12.0), Inches(height))
     _fill_text(box.text_frame, lines, size=size)
     return box
+
+
+def margin_line() -> str:
+    """Worst-case safety margin across rivals (the binding one is the smallest ε*)."""
+    rows = [m for m in safety_margin() if m["worst_weights"] is not None]
+    if not rows:
+        return "• الفائز يتفوق على كل المنافسين في كل المعايير"
+    binding = min(rows, key=lambda m: m["epsilon"])
+    return f"• هامش الأمان: الفائز يصمد أمام تغيير نسبي ±{binding['epsilon'] * 100:.0f}% في كل الأوزان معًا"
+
+
+def joint_line() -> str:
+    """Fastest joint move that flips the winner (two weights raised together)."""
+    hits = [r for r in joint_pairs() if r["tipping"] is not None]
+    if not hits:
+        return "• لا ينقلب الفائز بتحريك أي زوج من الأوزان معًا"
+    best = min(hits, key=lambda r: r["tipping"][1])
+    alt = ALTERNATIVES[best["tipping"][0]]
+    return f"• أسرع انقلاب مشترك: {best['pair'][0]} + {best['pair'][1]} عند +{best['tipping'][1]:.3f} لكل منهما ({alt})"
 
 
 def tipping_line() -> str:
@@ -569,6 +734,8 @@ def build_deck(path: Path) -> None:
             f"• الفارق عن البديل الثاني: {gap:.2f} نقطة",
             f"• الفائز ثابت في {stable} من {len(sens) - 1} سيناريو حساسية (±10%)",
             tipping_line(),
+            margin_line(),
+            joint_line(),
         ],
     )
 
@@ -611,6 +778,7 @@ def build_deck(path: Path) -> None:
             ),
             f"الفائز ثابت في {stable} من {len(sens) - 1} سيناريو حساسية (تغيير الأوزان ±10%)",
             tipping_line(),
+            margin_line(),
             "[المخاطر وخطة التعامل معها]",
         ],
     )
@@ -642,6 +810,8 @@ def main() -> None:
     stable = sum(1 for r in sensitivity_rows()[1:] if not r["changed"])
     print(f"Winner stable in {stable} of {len(CRITERIA) * 2} sensitivity scenarios")
     print("Tipping points:", [(r["criterion"], round(r["tipping"][1], 3), ALTERNATIVES[r["tipping"][0]]) for r in sweep_table() if r["tipping"]])
+    print("Safety margins:", [(m["rival"], round(m["epsilon"], 4)) for m in safety_margin()])
+    print("Joint tipping:", [(r["pair"], None if r["tipping"] is None else round(r["tipping"][1], 4)) for r in joint_pairs() if r["tipping"]])
     print(f"Wrote {out / EXCEL_NAME}")
     print(f"Wrote {out / PPTX_NAME}")
     print(f"Wrote CSV files to {out / 'csv'}")
