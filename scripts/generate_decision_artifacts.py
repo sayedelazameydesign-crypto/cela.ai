@@ -45,6 +45,8 @@ from pptx.util import Inches, Pt
 
 # ---------------------------------------------------------------------------
 # SOURCE DATA (edit here only)
+# Precedence: if SWING_RATIOS is set, it REPLACES the weights in CRITERIA
+# (they are not merged). Otherwise the weights in CRITERIA are used as given.
 # ---------------------------------------------------------------------------
 
 PROBLEM = {
