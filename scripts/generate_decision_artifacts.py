@@ -33,6 +33,9 @@ from __future__ import annotations
 import argparse
 import csv
 import math
+import re
+import zipfile
+from datetime import datetime
 from pathlib import Path
 
 from openpyxl import Workbook
@@ -93,6 +96,36 @@ SENSITIVITY_STEP = 0.10  # relative change applied to each weight (±10%)
 
 EXCEL_NAME = "decision-model.xlsx"
 PPTX_NAME = "decision-model.pptx"
+
+# Fixed reference timestamp written into document metadata and ZIP entries.
+# Keeping it constant makes .xlsx/.pptx byte-for-byte reproducible across runs,
+# so a regeneration with unchanged data produces no diff. Change it deliberately
+# when you want to record a new revision date.
+BUILD_TIMESTAMP = datetime(2026, 1, 1, 0, 0, 0)
+BUILD_AUTHOR = "decision-model generator"
+
+
+def _freeze_zip_timestamps(path: Path) -> None:
+    """Rewrite an OOXML (ZIP) file so every entry has BUILD_TIMESTAMP as its time.
+
+    openpyxl and python-pptx write entries with the current clock, which changes the
+    bytes on every run even when the content is identical.
+    """
+    tmp = path.with_name(path.name + ".tmp")
+    fixed = BUILD_TIMESTAMP.timetuple()[:6]
+    iso = BUILD_TIMESTAMP.strftime("%Y-%m-%dT%H:%M:%SZ")
+    # openpyxl overwrites dcterms:modified with the current time on save, so pin it here too.
+    modified_re = re.compile(r"(<dcterms:modified[^>]*>)[^<]*(</dcterms:modified>)")
+    with zipfile.ZipFile(path) as src, zipfile.ZipFile(tmp, "w", compression=zipfile.ZIP_DEFLATED) as dst:
+        for info in src.infolist():
+            data = src.read(info.filename)
+            if info.filename == "docProps/core.xml":
+                data = modified_re.sub(rf"\g<1>{iso}\g<2>", data.decode("utf-8")).encode("utf-8")
+            zi = zipfile.ZipInfo(info.filename, date_time=fixed)
+            zi.compress_type = zipfile.ZIP_DEFLATED
+            zi.external_attr = info.external_attr
+            dst.writestr(zi, data)
+    tmp.replace(path)
 
 # ---------------------------------------------------------------------------
 # Computation (mirrors the Excel formulas, used for the deck, CSV and checks)
@@ -396,6 +429,10 @@ def _set_widths(ws, widths: list[int]) -> None:
 def build_workbook(path: Path) -> None:
     wb = Workbook()
     wb.remove(wb.active)
+    wb.properties.creator = BUILD_AUTHOR
+    wb.properties.lastModifiedBy = BUILD_AUTHOR
+    wb.properties.created = BUILD_TIMESTAMP
+    wb.properties.modified = BUILD_TIMESTAMP
 
     # Sheet 1: problem and decision
     ws1 = wb.create_sheet("المشكلة والقرار")
@@ -582,6 +619,7 @@ def build_workbook(path: Path) -> None:
 
     path.parent.mkdir(parents=True, exist_ok=True)
     wb.save(path)
+    _freeze_zip_timestamps(path)
 
 
 # ---------------------------------------------------------------------------
@@ -733,6 +771,12 @@ def tipping_line() -> str:
 
 def build_deck(path: Path) -> None:
     prs = Presentation()
+    cp = prs.core_properties
+    cp.author = BUILD_AUTHOR
+    cp.last_modified_by = BUILD_AUTHOR
+    cp.created = BUILD_TIMESTAMP
+    cp.modified = BUILD_TIMESTAMP
+    cp.revision = 1
     prs.slide_width = Inches(13.333)
     prs.slide_height = Inches(7.5)
 
@@ -840,6 +884,7 @@ def build_deck(path: Path) -> None:
 
     path.parent.mkdir(parents=True, exist_ok=True)
     prs.save(path)
+    _freeze_zip_timestamps(path)
 
 
 # ---------------------------------------------------------------------------
