@@ -65,6 +65,11 @@ CRITERIA = [
     ("الاستدامة", 0.10, ""),
 ]
 
+# Optional raw Swing ratios (one per criterion, same order as CRITERIA), e.g. [100, 60, 40, 20].
+# When set, they are normalised to weights and REPLACE the weights above.
+# Leave as None to use the explicit weights in CRITERIA.
+SWING_RATIOS: list[float] | None = None
+
 ALTERNATIVES = ["مدفوعة", "محتوى", "مؤثرون"]
 
 # SCORES[criterion_index][alternative_index]
@@ -92,13 +97,47 @@ PPTX_NAME = "decision-model.pptx"
 # ---------------------------------------------------------------------------
 
 
+def normalize(values: list[float]) -> list[float]:
+    """Scale non-negative values so they sum to 1.00."""
+    if any(v < 0 for v in values):
+        raise ValueError("Ratios must be non-negative")
+    total = sum(values)
+    if total <= 0:
+        raise ValueError("Ratios must sum to a positive number")
+    return [v / total for v in values]
+
+
+def _apply_swing_ratios() -> None:
+    """If SWING_RATIOS is set, replace CRITERIA weights with their normalised values."""
+    global CRITERIA
+    if SWING_RATIOS is None:
+        return
+    if len(SWING_RATIOS) != len(CRITERIA):
+        raise ValueError(
+            f"SWING_RATIOS has {len(SWING_RATIOS)} values but there are {len(CRITERIA)} criteria"
+        )
+    weights = normalize(SWING_RATIOS)
+    CRITERIA = [(name, w, note) for (name, _, note), w in zip(CRITERIA, weights)]
+
+
+_apply_swing_ratios()
+
+
 def validate() -> None:
     total = sum(w for _, w, _ in CRITERIA)
-    if not math.isclose(total, 1.0, abs_tol=1e-9):
-        raise ValueError(f"Criteria weights must sum to 1.00, got {total:.2f}")
+    if abs(total - 1.0) >= 1e-6:
+        raise ValueError(
+            f"Criteria weights must sum to 1.00 (got {total:.6f}). "
+            "Fix the weights in CRITERIA, or set SWING_RATIOS so they are normalised."
+        )
+    for name, w, _ in CRITERIA:
+        if w < 0:
+            raise ValueError(f"Weight for '{name}' is negative")
     for row in SCORES:
         if len(row) != len(ALTERNATIVES):
             raise ValueError("Each criterion needs one score per alternative")
+    if len(SCORES) != len(CRITERIA):
+        raise ValueError(f"SCORES has {len(SCORES)} rows but there are {len(CRITERIA)} criteria")
 
 
 def _scores_for(weights: list[float]) -> list[float]:
