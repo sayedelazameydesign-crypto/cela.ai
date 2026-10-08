@@ -1,8 +1,12 @@
 #!/usr/bin/env python3
-"""Generate the decision-analysis Excel workbook and PowerPoint deck.
+"""Generate the decision-analysis Excel workbook, PowerPoint deck and CSV files.
 
 Single source of truth: the criteria, weights and alternative scores defined
-in DATA below. Edit them and re-run the script to regenerate both artifacts.
+in the SOURCE DATA section below. Edit them and re-run the script to regenerate
+every artifact.
+
+Example: choosing a digital marketing channel for a product launch.
+Scores use a 1-10 scale where 10 is the best. Replace them with your own data.
 
 Usage (from the repository root):
 
@@ -13,17 +17,21 @@ Usage (from the repository root):
 Outputs:
     <out-dir>/decision-model.xlsx
     <out-dir>/decision-model.pptx
+    <out-dir>/csv/*.csv           (one file per workbook sheet, computed values)
 
-Note: the workbook stores formulas only. openpyxl does not write cached
-values, so Excel computes them on open, but viewers that read cached values
-(e.g. some previews, Google Sheets imports, pandas/openpyxl data_only=True)
-may show blank cells. Open the file once in Excel or LibreOffice to store the
-computed values.
+Notes:
+- The workbook stores formulas only. openpyxl does not write cached values, so
+  Excel computes them on open. Viewers that read cached values (some previews,
+  Google Sheets imports, data_only=True) may show blank cells. Open the file once
+  in Excel or LibreOffice to store the computed values.
+- The sensitivity sheet holds computed values (not formulas). It is refreshed
+  whenever the script runs.
 """
 
 from __future__ import annotations
 
 import argparse
+import csv
 import math
 from pathlib import Path
 
@@ -36,47 +44,51 @@ from pptx.enum.text import PP_ALIGN
 from pptx.util import Inches, Pt
 
 # ---------------------------------------------------------------------------
-# Source data (edit here only)
+# SOURCE DATA (edit here only)
 # ---------------------------------------------------------------------------
 
 PROBLEM = {
-    "المشكلة": "",
-    "القرار المطلوب": "",
-    "صاحب القرار": "",
-    "تاريخ القرار": "",
-    "القيود": "",
-    "الافتراضات": "",
+    "المشكلة": "الحاجة إلى قناة تسويق رقمي لإطلاق منتج جديد بميزانية محدودة وجمهور مستهدف واضح.",
+    "القرار المطلوب": "اختيار قناة التسويق الرقمي الأنسب لإطلاق المنتج.",
+    "صاحب القرار": "[يُحدد لاحقًا]",
+    "تاريخ القرار": "[يُحدد لاحقًا]",
+    "القيود": "[يُحدد لاحقًا]",
+    "الافتراضات": "الدرجات على مقياس 1 إلى 10 حيث 10 = الأفضل، والمعايير مستقلة ومجموع أوزانها 1.00.",
 }
 
 # (criterion, weight, note)
 CRITERIA = [
-    ("التكلفة", 0.30, ""),
-    ("السرعة", 0.20, ""),
-    ("المخاطر", 0.25, ""),
-    ("الأثر الاستراتيجي", 0.25, ""),
+    ("التكلفة", 0.25, ""),
+    ("الوصول للجمهور المستهدف", 0.30, ""),
+    ("سرعة النتائج", 0.20, ""),
+    ("قابلية القياس", 0.15, ""),
+    ("الاستدامة", 0.10, ""),
 ]
 
-ALTERNATIVES = ["A", "B", "C"]
+ALTERNATIVES = ["مدفوعة", "محتوى", "مؤثرون"]
 
 # SCORES[criterion_index][alternative_index]
 SCORES = [
-    [8, 7, 9],  # التكلفة
-    [7, 9, 6],  # السرعة
-    [6, 8, 5],  # المخاطر
-    [9, 7, 8],  # الأثر الاستراتيجي
+    [6, 9, 5],  # التكلفة
+    [9, 6, 8],  # الوصول للجمهور المستهدف
+    [9, 4, 7],  # سرعة النتائج
+    [9, 6, 5],  # قابلية القياس
+    [5, 9, 4],  # الاستدامة
 ]
 
 # Implementation plan rows: (activity, owner, date, resources, KPI, status)
-PLAN = [
+PLAN: list[tuple[str, ...]] = [
     ("", "", "", "", "", ""),
     ("", "", "", "", "", ""),
 ]
+
+SENSITIVITY_STEP = 0.10  # relative change applied to each weight (±10%)
 
 EXCEL_NAME = "decision-model.xlsx"
 PPTX_NAME = "decision-model.pptx"
 
 # ---------------------------------------------------------------------------
-# Computation (mirrors the Excel formulas, used for the deck and checks)
+# Computation (mirrors the Excel formulas, used for the deck, CSV and checks)
 # ---------------------------------------------------------------------------
 
 
@@ -89,16 +101,62 @@ def validate() -> None:
             raise ValueError("Each criterion needs one score per alternative")
 
 
-def weighted_scores() -> list[float]:
+def _scores_for(weights: list[float]) -> list[float]:
     return [
-        round(sum(CRITERIA[i][1] * SCORES[i][j] for i in range(len(CRITERIA))), 2)
+        sum(weights[i] * SCORES[i][j] for i in range(len(CRITERIA)))
         for j in range(len(ALTERNATIVES))
     ]
+
+
+def weighted_scores() -> list[float]:
+    return [round(s, 2) for s in _scores_for([w for _, w, _ in CRITERIA])]
 
 
 def ranks(scores: list[float]) -> list[int]:
     ordered = sorted(scores, reverse=True)
     return [ordered.index(s) + 1 for s in scores]
+
+
+def winner_index(scores: list[float]) -> int:
+    return scores.index(max(scores))
+
+
+def sensitivity_rows() -> list[dict]:
+    """Base case plus each weight moved by ±SENSITIVITY_STEP, renormalised to 1.00."""
+    base_weights = [w for _, w, _ in CRITERIA]
+    base_scores = _scores_for(base_weights)
+    base_winner = winner_index(base_scores)
+
+    rows = [
+        {
+            "scenario": "الأساس",
+            "scores": base_scores,
+            "winner": base_winner,
+            "changed": False,
+        }
+    ]
+    for i, (name, _, _) in enumerate(CRITERIA):
+        for step in (-SENSITIVITY_STEP, SENSITIVITY_STEP):
+            w = base_weights[:]
+            w[i] *= 1 + step
+            total = sum(w)
+            w = [x / total for x in w]
+            scores = _scores_for(w)
+            win = winner_index(scores)
+            sign = "+" if step > 0 else "-"
+            rows.append(
+                {
+                    "scenario": f"{name} {sign}{int(abs(step) * 100)}%",
+                    "scores": scores,
+                    "winner": win,
+                    "changed": win != base_winner,
+                }
+            )
+    return rows
+
+
+def _fmt(x: float) -> str:
+    return f"{x:.2f}"
 
 
 # ---------------------------------------------------------------------------
@@ -109,7 +167,7 @@ HEADER_FILL = PatternFill("solid", fgColor="1F4E78")
 HEADER_FONT = Font(bold=True, color="FFFFFF")
 TOTAL_FONT = Font(bold=True)
 CENTER = Alignment(horizontal="center", vertical="center", wrap_text=True)
-RIGHT = Alignment(horizontal="right", vertical="center", wrap_text=True)
+WRAP = Alignment(vertical="center", wrap_text=True)
 
 
 def _style_header(ws, row: int, ncols: int) -> None:
@@ -136,7 +194,10 @@ def build_workbook(path: Path) -> None:
     _style_header(ws1, 1, 2)
     for key, value in PROBLEM.items():
         ws1.append([key, value])
-    _set_widths(ws1, [24, 60])
+    for row in ws1.iter_rows(min_row=2, max_row=ws1.max_row, min_col=1, max_col=2):
+        for cell in row:
+            cell.alignment = WRAP
+    _set_widths(ws1, [24, 70])
 
     # Sheet 2: criteria and weights
     ws2 = wb.create_sheet("المعايير والأوزان")
@@ -164,10 +225,10 @@ def build_workbook(path: Path) -> None:
     _style_header(ws3, 1, len(headers))
     for i, (name, _, _) in enumerate(CRITERIA):
         r = first + i
-        row = [name, f"='المعايير والأوزان'!B{r}"] + [
-            SCORES[i][j] for j in range(len(ALTERNATIVES))
-        ]
-        ws3.append(row)
+        ws3.append(
+            [name, f"='المعايير والأوزان'!B{r}"]
+            + [SCORES[i][j] for j in range(len(ALTERNATIVES))]
+        )
     eval_last = first + len(CRITERIA) - 1
     eval_total = eval_last + 1
     total = ["الدرجة المرجحة", ""]
@@ -186,13 +247,14 @@ def build_workbook(path: Path) -> None:
     for row in ws3.iter_rows(min_row=eval_total, max_row=eval_total, min_col=3, max_col=2 + len(ALTERNATIVES)):
         for cell in row:
             cell.number_format = "0.00"
-    _set_widths(ws3, [24, 10] + [14] * len(ALTERNATIVES))
+    _set_widths(ws3, [28, 10] + [14] * len(ALTERNATIVES))
 
     # Sheet 4: decision matrix (linked to sheet 3)
     ws4 = wb.create_sheet("مصفوفة القرار")
     ws4.sheet_view.rightToLeft = True
     ws4.append(["البديل", "الدرجة", "الترتيب", "القرار"])
     _style_header(ws4, 1, 4)
+    last_alt_row = 1 + len(ALTERNATIVES)
     for j, alt in enumerate(ALTERNATIVES):
         r = 2 + j
         col = get_column_letter(3 + j)
@@ -200,29 +262,101 @@ def build_workbook(path: Path) -> None:
             [
                 alt,
                 f"='تقييم البدائل'!{col}{eval_total}",
-                f"=RANK(B{r},$B$2:$B${1 + len(ALTERNATIVES)})",
+                f"=RANK(B{r},$B$2:$B${last_alt_row})",
                 f'=IF(C{r}=1,"✅ مختار","")',
             ]
         )
-    for row in ws4.iter_rows(min_row=2, max_row=1 + len(ALTERNATIVES), min_col=2, max_col=2):
+    for row in ws4.iter_rows(min_row=2, max_row=last_alt_row, min_col=2, max_col=2):
         for cell in row:
             cell.number_format = "0.00"
-    for row in ws4.iter_rows(min_row=2, max_row=1 + len(ALTERNATIVES), min_col=1, max_col=4):
+    for row in ws4.iter_rows(min_row=2, max_row=last_alt_row, min_col=1, max_col=4):
         for cell in row:
             cell.alignment = CENTER
-    _set_widths(ws4, [12, 12, 12, 16])
+    _set_widths(ws4, [16, 12, 12, 16])
 
-    # Sheet 5: implementation and follow-up
-    ws5 = wb.create_sheet("خطة التنفيذ والمتابعة")
+    # Sheet 5: sensitivity analysis (computed values)
+    ws5 = wb.create_sheet("تحليل الحساسية")
     ws5.sheet_view.rightToLeft = True
-    ws5.append(["النشاط", "المسؤول", "الموعد", "الموارد", "مؤشر النجاح", "الحالة"])
-    _style_header(ws5, 1, 6)
+    ws5.append([f"تغيير كل وزن بنسبة ±{int(SENSITIVITY_STEP * 100)}% ثم إعادة التطبيع إلى 1.00. قيم محسوبة بالسكربت."])
+    ws5.merge_cells(start_row=1, start_column=1, end_row=1, end_column=3 + len(ALTERNATIVES))
+    ws5.cell(row=1, column=1).font = Font(italic=True)
+    ws5.append(["السيناريو"] + [f"البديل {a}" for a in ALTERNATIVES] + ["الفائز", "تغيّر الفائز؟"])
+    _style_header(ws5, 2, 3 + len(ALTERNATIVES))
+    sens = sensitivity_rows()
+    for row in sens:
+        ws5.append(
+            [row["scenario"]]
+            + [round(s, 2) for s in row["scores"]]
+            + [ALTERNATIVES[row["winner"]], "نعم" if row["changed"] else "لا"]
+        )
+    for row in ws5.iter_rows(min_row=3, max_row=ws5.max_row, min_col=2, max_col=1 + len(ALTERNATIVES)):
+        for cell in row:
+            cell.number_format = "0.00"
+    for row in ws5.iter_rows(min_row=3, max_row=ws5.max_row, min_col=1, max_col=3 + len(ALTERNATIVES)):
+        for cell in row:
+            cell.alignment = CENTER
+    _set_widths(ws5, [28] + [14] * len(ALTERNATIVES) + [14, 16])
+
+    # Sheet 6: implementation and follow-up
+    ws6 = wb.create_sheet("خطة التنفيذ والمتابعة")
+    ws6.sheet_view.rightToLeft = True
+    ws6.append(["النشاط", "المسؤول", "الموعد", "الموارد", "مؤشر النجاح", "الحالة"])
+    _style_header(ws6, 1, 6)
     for row in PLAN:
-        ws5.append(list(row))
-    _set_widths(ws5, [28, 18, 14, 22, 24, 14])
+        ws6.append(list(row))
+    _set_widths(ws6, [28, 18, 14, 22, 24, 14])
 
     path.parent.mkdir(parents=True, exist_ok=True)
     wb.save(path)
+
+
+# ---------------------------------------------------------------------------
+# CSV export (one file per sheet, computed values, UTF-8 with BOM for Excel)
+# ---------------------------------------------------------------------------
+
+
+def build_csv(out_dir: Path) -> None:
+    csv_dir = out_dir / "csv"
+    csv_dir.mkdir(parents=True, exist_ok=True)
+    scores = weighted_scores()
+    rnk = ranks(scores)
+
+    def write(name: str, rows: list[list]) -> None:
+        with open(csv_dir / name, "w", newline="", encoding="utf-8-sig") as fh:
+            csv.writer(fh).writerows(rows)
+
+    write("01-problem.csv", [["البند", "التفاصيل"]] + [[k, v] for k, v in PROBLEM.items()])
+    write(
+        "02-criteria.csv",
+        [["المعيار", "الوزن", "ملاحظات"]]
+        + [[n, f"{w:.2f}", note] for n, w, note in CRITERIA]
+        + [["المجموع", f"{sum(w for _, w, _ in CRITERIA):.2f}", ""]],
+    )
+    eval_rows = [["المعيار", "الوزن"] + [f"البديل {a}" for a in ALTERNATIVES]]
+    for i, (n, w, _) in enumerate(CRITERIA):
+        eval_rows.append([n, f"{w:.2f}"] + [str(s) for s in SCORES[i]])
+    eval_rows.append(["الدرجة المرجحة", ""] + [_fmt(s) for s in scores])
+    write("03-evaluation.csv", eval_rows)
+    write(
+        "04-decision.csv",
+        [["البديل", "الدرجة", "الترتيب", "القرار"]]
+        + [
+            [a, _fmt(scores[j]), str(rnk[j]), "مختار" if rnk[j] == 1 else ""]
+            for j, a in enumerate(ALTERNATIVES)
+        ],
+    )
+    sens_rows = [["السيناريو"] + [f"البديل {a}" for a in ALTERNATIVES] + ["الفائز", "تغيّر الفائز؟"]]
+    for row in sensitivity_rows():
+        sens_rows.append(
+            [row["scenario"]]
+            + [_fmt(s) for s in row["scores"]]
+            + [ALTERNATIVES[row["winner"]], "نعم" if row["changed"] else "لا"]
+        )
+    write("05-sensitivity.csv", sens_rows)
+    write(
+        "06-plan.csv",
+        [["النشاط", "المسؤول", "الموعد", "الموارد", "مؤشر النجاح", "الحالة"]] + [list(r) for r in PLAN],
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -273,7 +407,9 @@ def build_deck(path: Path) -> None:
 
     scores = weighted_scores()
     rnk = ranks(scores)
-    best = ALTERNATIVES[scores.index(max(scores))]
+    best = ALTERNATIVES[winner_index(scores)]
+    sens = sensitivity_rows()
+    stable = sum(1 for r in sens[1:] if not r["changed"])
 
     # 1. Cover
     cover = prs.slides.add_slide(prs.slide_layouts[0])
@@ -284,11 +420,11 @@ def build_deck(path: Path) -> None:
 
     # 2. Problem
     s = _slide_with_title(prs, "المشكلة")
-    _add_body(s, ["[وصف مختصر للمشكلة]"])
+    _add_body(s, [PROBLEM["المشكلة"]])
 
     # 3. Decision required
     s = _slide_with_title(prs, "القرار المطلوب")
-    _add_body(s, ["[ما الذي نريد حسمه؟ ومن صاحب القرار؟]"])
+    _add_body(s, [PROBLEM["القرار المطلوب"], f"صاحب القرار: {PROBLEM['صاحب القرار']}"])
 
     # 4. Data and sources
     s = _slide_with_title(prs, "البيانات والمصادر")
@@ -303,22 +439,32 @@ def build_deck(path: Path) -> None:
             "• تشخيصي: لماذا حدث؟",
             "• تنبؤي: ماذا سيحدث؟",
             "• توجيهي: ماذا نفعل؟",
+            "• تقييم: مصفوفة قرار مرجحة، واختبار حساسية للأوزان (±10%)",
         ],
     )
 
     # 6. Findings
     s = _slide_with_title(prs, "النتائج والرؤى")
-    _add_body(s, ["[أهم 3 إلى 5 نتائج]"])
+    order = sorted(range(len(ALTERNATIVES)), key=lambda j: -scores[j])
+    gap = scores[order[0]] - scores[order[1]]
+    _add_body(
+        s,
+        [
+            f"• البديل الأعلى درجة: {best} ({_fmt(scores[order[0]])})",
+            f"• الفارق عن البديل الثاني: {gap:.2f} نقطة",
+            f"• الفائز ثابت في {stable} من {len(sens) - 1} سيناريو حساسية",
+        ],
+    )
 
     # 7. Alternatives
     s = _slide_with_title(prs, "البدائل المطروحة")
-    _add_body(s, [f"• البديل {a}" for a in ALTERNATIVES])
+    _add_body(s, [f"• {a}" for a in ALTERNATIVES])
 
     # 8. Evaluation matrix (table)
     s = _slide_with_title(prs, "مصفوفة التقييم")
     rows = len(CRITERIA) + 2
     cols = 2 + len(ALTERNATIVES)
-    table = s.shapes.add_table(rows, cols, Inches(0.7), Inches(1.8), Inches(12.0), Inches(0.6) * rows).table
+    table = s.shapes.add_table(rows, cols, Inches(0.7), Inches(1.6), Inches(12.0), Inches(0.55) * rows).table
     header = ["المعيار", "الوزن"] + [f"البديل {a}" for a in ALTERNATIVES]
     for c, text in enumerate(header):
         table.cell(0, c).text = text
@@ -330,7 +476,7 @@ def build_deck(path: Path) -> None:
     table.cell(rows - 1, 0).text = "الدرجة المرجحة"
     table.cell(rows - 1, 1).text = ""
     for j, sc in enumerate(scores):
-        table.cell(rows - 1, 2 + j).text = f"{sc:.2f}"
+        table.cell(rows - 1, 2 + j).text = _fmt(sc)
     for r in range(rows):
         for c in range(cols):
             for p in table.cell(r, c).text_frame.paragraphs:
@@ -342,18 +488,19 @@ def build_deck(path: Path) -> None:
     _add_body(
         s,
         [
-            f"التوصية: البديل {best} (الدرجة {max(scores):.2f})",
+            f"التوصية: {best} (الدرجة {_fmt(max(scores))})",
             "الترتيب: " + "، ".join(
-                f"{ALTERNATIVES[j]} = {scores[j]:.2f} (المركز {rnk[j]})"
+                f"{ALTERNATIVES[j]} = {_fmt(scores[j])} (المركز {rnk[j]})"
                 for j in range(len(ALTERNATIVES))
             ),
-            "[السبب ومخاطر القرار]",
+            f"الفائز ثابت في {stable} من {len(sens) - 1} سيناريو حساسية (تغيير الأوزان ±10%)",
+            "[المخاطر وخطة التعامل معها]",
         ],
     )
 
     # 10. Implementation and follow-up
     s = _slide_with_title(prs, "خطة التنفيذ والمتابعة")
-    _add_body(s, ["[المسؤوليات والمواعيد ومؤشرات النجاح]"])
+    _add_body(s, ["[المسؤوليات والمواعيد ومؤشرات النجاح]", "التفاصيل الكاملة في implementation-guide.md"])
 
     path.parent.mkdir(parents=True, exist_ok=True)
     prs.save(path)
@@ -371,11 +518,15 @@ def main() -> None:
     out = Path(args.out_dir)
     build_workbook(out / EXCEL_NAME)
     build_deck(out / PPTX_NAME)
+    build_csv(out)
 
     scores = weighted_scores()
     print("Weighted scores:", dict(zip(ALTERNATIVES, scores)))
+    stable = sum(1 for r in sensitivity_rows()[1:] if not r["changed"])
+    print(f"Winner stable in {stable} of {len(CRITERIA) * 2} sensitivity scenarios")
     print(f"Wrote {out / EXCEL_NAME}")
     print(f"Wrote {out / PPTX_NAME}")
+    print(f"Wrote CSV files to {out / 'csv'}")
 
 
 if __name__ == "__main__":
