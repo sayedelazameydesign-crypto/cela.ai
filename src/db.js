@@ -77,21 +77,25 @@ function addColumn(table, column, definition) {
 addColumn("calls", "decision", "TEXT NOT NULL DEFAULT 'allowed'");
 addColumn("calls", "policy_reason", "TEXT");
 addColumn("calls", "approval_id", "INTEGER");
+addColumn("calls", "actor", "TEXT NOT NULL DEFAULT 'anonymous'");
+addColumn("sessions", "actor", "TEXT NOT NULL DEFAULT 'anonymous'");
+addColumn("approvals", "requested_by", "TEXT");
 
 const now = () => new Date().toISOString();
 const bytes = (value) => Buffer.byteLength(typeof value === "string" ? value : JSON.stringify(value ?? null), "utf8");
 
-export function openSession({ serverName, command, serverInfo, capabilities }) {
+export function openSession({ serverName, command, serverInfo, capabilities, actor }) {
   const stmt = db.prepare(
-    `INSERT INTO sessions (server_name, command, server_info, capabilities, started_at)
-     VALUES (?, ?, ?, ?, ?)`
+    `INSERT INTO sessions (server_name, command, server_info, capabilities, started_at, actor)
+     VALUES (?, ?, ?, ?, ?, ?)`
   );
   const info = stmt.run(
     serverName,
     command,
     JSON.stringify(serverInfo ?? null),
     JSON.stringify(capabilities ?? null),
-    now()
+    now(),
+    actor ?? "anonymous"
   );
   return Number(info.lastInsertRowid);
 }
@@ -104,15 +108,15 @@ export function closeSession(sessionId, reason = "disconnected") {
   );
 }
 
-export function recordCall({ sessionId, tool, args, result, error, durationMs, replayOf, decision, policyReason, approvalId }) {
+export function recordCall({ sessionId, tool, args, result, error, durationMs, replayOf, decision, policyReason, approvalId, actor }) {
   const seqRow = db.prepare(`SELECT COALESCE(MAX(seq), 0) + 1 AS next FROM calls WHERE session_id = ?`).get(sessionId);
   const isError = error ? 1 : result?.isError ? 1 : 0;
 
   const stmt = db.prepare(
     `INSERT INTO calls (session_id, seq, tool, args, result, error, is_error,
                         bytes_in, bytes_out, duration_ms, replay_of, created_at,
-                        decision, policy_reason, approval_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+                        decision, policy_reason, approval_id, actor)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   );
   const info = stmt.run(
     sessionId,
@@ -129,7 +133,8 @@ export function recordCall({ sessionId, tool, args, result, error, durationMs, r
     now(),
     decision ?? "allowed",
     policyReason ?? null,
-    approvalId ?? null
+    approvalId ?? null,
+    actor ?? "anonymous"
   );
   return Number(info.lastInsertRowid);
 }
@@ -181,13 +186,13 @@ export function reconcileOrphans() {
 
 /* ---------- governance ---------- */
 
-export function recordApproval({ sessionId, server, tool, args, reason }) {
+export function recordApproval({ sessionId, server, tool, args, reason, requestedBy }) {
   const info = db
     .prepare(
-      `INSERT INTO approvals (session_id, server, tool, args, reason, state, created_at)
-       VALUES (?, ?, ?, ?, ?, 'pending', ?)`
+      `INSERT INTO approvals (session_id, server, tool, args, reason, state, created_at, requested_by)
+       VALUES (?, ?, ?, ?, ?, 'pending', ?, ?)`
     )
-    .run(sessionId, server, tool, JSON.stringify(args ?? {}), reason ?? null, now());
+    .run(sessionId, server, tool, JSON.stringify(args ?? {}), reason ?? null, now(), requestedBy ?? "anonymous");
   return Number(info.lastInsertRowid);
 }
 
@@ -232,4 +237,23 @@ export function reconcilePendingApprovals() {
     .prepare(`UPDATE approvals SET state = 'expired', decided_at = ?, decided_by = 'restart' WHERE state = 'pending'`)
     .run(now());
   return Number(info.changes);
+}
+
+/**
+ * Canonical serialisation of an audit row.
+ *
+ * Hash-chaining is intentionally NOT enabled yet, but the chain must survive the
+ * columns that identity work keeps adding. Fixing the field ORDER now — rather
+ * than hashing "whatever columns exist today" — means a later chain can cover
+ * `actor` without a redesign: unknown fields serialise as null, so the ordering
+ * is stable across schema versions.
+ */
+export const AUDIT_FIELDS = [
+  "id", "session_id", "seq", "tool", "args", "decision", "policy_reason",
+  "approval_id", "actor", "is_error", "bytes_in", "bytes_out", "duration_ms",
+  "replay_of", "created_at",
+];
+
+export function canonicalAuditRow(row) {
+  return JSON.stringify(AUDIT_FIELDS.map((field) => row[field] ?? null));
 }

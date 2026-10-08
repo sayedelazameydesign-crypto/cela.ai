@@ -5,10 +5,36 @@ import * as mcp from "./mcp-manager.js";
 import * as store from "./db.js";
 import * as approvals from "./approvals.js";
 import { loadPolicy } from "./policy.js";
+import * as auth from "./auth.js";
 
 const app = express();
 app.use(express.json({ limit: "1mb" }));
 app.use(express.static(path.join(ROOT, "public")));
+
+/* ---------- identity ---------- */
+
+app.get("/api/auth/me", (req, res) => {
+  const user = auth.currentUser(req);
+  res.json({ user, provider: auth.providerName });
+});
+
+app.post("/api/auth/login", (req, res) => {
+  try {
+    const identity = auth.login(req.body ?? {});
+    auth.setSessionCookie(res, auth.issueSession(identity));
+    res.json({ user: identity });
+  } catch (err) {
+    res.status(401).json({ error: err.message });
+  }
+});
+
+app.post("/api/auth/logout", (req, res) => {
+  auth.clearSessionCookie(res);
+  res.json({ ok: true });
+});
+
+// Everything below this line requires an identity. Nothing acts anonymously.
+app.use("/api", auth.requireAuth);
 
 /** Wrap an async route so rejections become JSON errors instead of hanging. */
 const route = (handler) => async (req, res) => {
@@ -41,7 +67,7 @@ app.post(
   "/api/servers/:name/connect",
   route(async (req) => {
     const spec = await findServer(req.params.name);
-    const state = await mcp.connect(spec);
+    const state = await mcp.connect(spec, req.user.sub);
     return { ...state, ...(await mcp.inventory(spec.name)) };
   })
 );
@@ -64,7 +90,10 @@ app.post(
   route(async (req) => {
     const { tool, args, replayOf } = req.body ?? {};
     if (!tool) throw new Error("Request body must include a \"tool\" name.");
-    const call = await mcp.callTool(req.params.name, tool, args, { replayOf: replayOf ?? null });
+    const call = await mcp.callTool(req.params.name, tool, args, {
+      replayOf: replayOf ?? null,
+      actor: req.user.sub,
+    });
     return { ...call, log: mcp.stderrLog(req.params.name).slice(-20) };
   })
 );
@@ -81,7 +110,7 @@ app.post(
   route(async (req) => {
     const { approve } = req.body ?? {};
     if (typeof approve !== "boolean") throw new Error('Body must include boolean "approve".');
-    return { decided: approvals.decide(req.params.id, approve) };
+    return { decided: approvals.decide(req.params.id, approve, req.user.sub) };
   })
 );
 
@@ -120,6 +149,7 @@ app.post(
     const session = store.getSession(original.session_id);
     const call = await mcp.callTool(session.server_name, original.tool, original.args, {
       replayOf: original.id,
+      actor: req.user.sub,
     });
     return { ...call, original: { id: original.id, durationMs: original.duration_ms } };
   })
@@ -156,8 +186,18 @@ const orphans = store.reconcileOrphans();
 if (orphans) console.log(`Closed ${orphans} session(s) left open by a previous run.`);
 
 const port = Number(process.env.PORT ?? 3000);
-const server = app.listen(port, "0.0.0.0", () => {
-  console.log(`cela.ai MCP Console listening on http://0.0.0.0:${port}`);
+// Default to loopback: this console spawns processes, so exposing it is opt-in.
+const host = process.env.HOST ?? "127.0.0.1";
+
+const server = app.listen(port, host, () => {
+  console.log(`cela.ai MCP Console listening on http://${host}:${port}`);
+  console.log(`Auth provider: ${auth.providerName}`);
+  if (auth.providerName === "local" && !process.env.AUTH_TOKEN) {
+    console.log(`\n  Operator token (this run only):\n  ${auth.operatorToken}\n`);
+  }
+  if (host !== "127.0.0.1" && !process.env.AUTH_TOKEN) {
+    console.warn("  Warning: bound beyond loopback with an ephemeral token. Set AUTH_TOKEN for a stable deployment.");
+  }
 });
 
 for (const signal of ["SIGINT", "SIGTERM"]) {

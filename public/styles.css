@@ -227,3 +227,23 @@ a.link[aria-disabled="true"] { opacity: 0.4; pointer-events: none; }
 }
 .call .decision.approved { color: var(--accent); border-color: var(--accent); }
 .call .decision.denied { color: var(--danger); border-color: var(--danger); }
+
+/* ---------- identity ---------- */
+
+.login-screen {
+  position: fixed; inset: 0; z-index: 100;
+  background: radial-gradient(900px 500px at 50% 0%, #16233a 0%, #080a10 70%);
+  display: flex; align-items: center; justify-content: center; padding: 20px;
+}
+.login-card {
+  width: 100%; max-width: 420px; background: var(--panel);
+  border: 1px solid var(--line); border-radius: 16px; padding: 28px;
+  display: flex; flex-direction: column; gap: 12px;
+}
+.login-card .brand { margin-bottom: 4px; }
+.login-card h2 { font-size: 16px; }
+.login-card input { font-size: 13px; padding: 10px 12px; }
+.login-error { color: var(--danger); font-size: 12px; margin: 0; }
+.whoami { font-size: 11px; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 4px 10px; }
+.whoami b { color: var(--accent); font-weight: 600; }
+.call .actor, .approval .actor { font-size: 10px; color: var(--muted); }

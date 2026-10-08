@@ -22,8 +22,8 @@ export function pendingCount() {
  * Register a gated call and wait for a decision.
  * @returns {Promise<{approved:boolean, reason:string, by:string}>}
  */
-export function requestApproval({ sessionId, server, tool, args, reason }, timeoutMs) {
-  const id = recordApproval({ sessionId, server, tool, args, reason });
+export function requestApproval({ sessionId, server, tool, args, reason, requestedBy }, timeoutMs) {
+  const id = recordApproval({ sessionId, server, tool, args, reason, requestedBy });
   const record = {
     id,
     sessionId,
@@ -31,6 +31,7 @@ export function requestApproval({ sessionId, server, tool, args, reason }, timeo
     tool,
     args,
     reason,
+    requestedBy,
     requestedAt: new Date().toISOString(),
     expiresAt: new Date(Date.now() + timeoutMs).toISOString(),
   };
@@ -56,10 +57,10 @@ export function requestApproval({ sessionId, server, tool, args, reason }, timeo
   });
 }
 
-export function decide(id, approved, by = "operator") {
+export function decide(id, approved, by = "anonymous") {
   const entry = pending.get(Number(id));
   if (!entry) throw new Error(`No pending approval ${id}.`);
-  entry.settle({ approved, reason: approved ? "Approved by operator." : "Denied by operator.", by });
+  entry.settle({ approved, reason: `${approved ? "Approved" : "Denied"} by ${by}.`, by });
   return entry.record;
 }
 

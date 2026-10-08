@@ -8,6 +8,21 @@
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
+    <div id="login-screen" class="login-screen" hidden>
+      <form id="login-form" class="login-card">
+        <div class="brand"><span class="dot"></span><h1>cela<span>.ai</span></h1></div>
+        <h2>Operator sign-in</h2>
+        <p class="hint">
+          This console spawns processes on the host, so every action is attributed to an identity.
+          The operator token is printed in the server log at startup.
+        </p>
+        <input id="login-token" type="password" placeholder="operator token" autocomplete="off" />
+        <button class="primary" type="submit">Sign in</button>
+        <p id="login-error" class="login-error" hidden></p>
+        <p class="hint footnote">Provider: <code id="login-provider">local</code></p>
+      </form>
+    </div>
+
     <header class="topbar">
       <div class="brand">
         <span class="dot"></span>

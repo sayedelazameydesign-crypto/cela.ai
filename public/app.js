@@ -10,12 +10,55 @@ const state = {
 async function api(url, options) {
   const res = await fetch(url, {
     headers: { "content-type": "application/json" },
+    credentials: "same-origin",
     ...options,
   });
   const body = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+  if (res.status === 401) {
+    showLogin();
+    throw new Error(body.error ?? "Authentication required.");
+  }
   if (!res.ok) throw new Error(body.error ?? `HTTP ${res.status}`);
   return body;
 }
+
+/* ---------- identity ---------- */
+
+function showLogin(message) {
+  $("login-screen").hidden = false;
+  const err = $("login-error");
+  err.hidden = !message;
+  err.textContent = message ?? "";
+}
+
+async function boot() {
+  const { user, provider } = await (await fetch("/api/auth/me", { credentials: "same-origin" })).json();
+  $("login-provider").textContent = provider;
+  if (!user) return showLogin();
+
+  $("login-screen").hidden = true;
+  $("whoami").innerHTML = `signed in as <b>${esc(user.name)}</b>`;
+  await Promise.all([loadServers(), loadSessions(), pollApprovals()]);
+  if (!window.__celaPolling) {
+    window.__celaPolling = setInterval(pollApprovals, 2000);
+  }
+}
+
+$("login-form").onsubmit = async (event) => {
+  event.preventDefault();
+  try {
+    await api("/api/auth/login", { method: "POST", body: JSON.stringify({ token: $("login-token").value }) });
+    $("login-token").value = "";
+    await boot();
+  } catch (err) {
+    showLogin(err.message);
+  }
+};
+
+$("logout").onclick = async () => {
+  await api("/api/auth/logout", { method: "POST" });
+  location.reload();
+};
 
 /* ---------- server list ---------- */
 
@@ -322,7 +365,7 @@ function renderApprovals(pending) {
     left.innerHTML =
       `<h3>Approval required</h3>` +
       `<div class="tool">${esc(req.server)} › ${esc(req.tool)}</div>` +
-      `<p class="why">${esc(req.reason ?? "")} · expires ${new Date(req.expiresAt).toLocaleTimeString()}</p>`;
+      `<p class="why">${esc(req.reason ?? "")} · requested by <span class="actor">${esc(req.requestedBy ?? "anonymous")}</span> · expires ${new Date(req.expiresAt).toLocaleTimeString()}</p>`;
     const pre = el("pre");
     pre.textContent = JSON.stringify(req.args, null, 2);
     left.append(pre);
@@ -444,7 +487,8 @@ async function showSession(id) {
       `<span class="decision ${esc(call.decision)}">${esc(call.decision)}</span>` +
       `<span class="num">${call.duration_ms} ms</span>` +
       `<span class="num">↑${fmtBytes(call.bytes_in)}</span>` +
-      `<span class="num">↓${fmtBytes(call.bytes_out)}</span>`;
+      `<span class="num">↓${fmtBytes(call.bytes_out)}</span>` +
+      `<span class="actor">${esc(call.actor ?? "anonymous")}</span>`;
 
     const replay = el("button", { className: "ghost", textContent: "Replay" });
     replay.onclick = () => replayCall(call.id, replay);
@@ -501,11 +545,8 @@ function fmtBytes(n) {
 const truncate = (text, max) => (text.length > max ? `${text.slice(0, max)}\n… (${text.length} chars)` : text);
 
 $("kill").onclick = killAll;
-setInterval(pollApprovals, 2000);
-pollApprovals();
-
 $("session-select").onchange = (e) => e.target.value && showSession(e.target.value);
 $("run").onclick = runTool;
 $("refresh").onclick = () => Promise.all([loadServers(), loadSessions()]);
-loadServers();
-loadSessions();
+
+boot();

@@ -58,13 +58,24 @@ tighten rules on a live console without restarting it.
 - **Kill switch.** Denies every waiting approval and terminates every MCP child
   process; affected sessions close with `end_reason = 'killed'`.
 
-**Not done, and deliberately so: RBAC.** Permissions are meaningless while the
+### Identity: shipped
+
+`src/auth.js` is a provider interface (`local` implemented, `oidc` specified in
+[`auth.md`](auth.md)). Sessions are HMAC-signed cookies; `actor` is persisted on
+every session, call and approval. Verified: all `/api/*` routes 401 when
+anonymous, forged cookies are rejected, logout invalidates.
+
+**Still not done, and deliberately so: RBAC.** Permissions are meaningless while the
 console has no identity model — today every caller is an anonymous operator.
 **Authentication must land before roles.** This is the single blocking item for
 Phase 2 being credible to an engineering team, and it is the natural home for
 the Auth0 dependency that started this repo.
 
-Hardening still open: hash-chaining audit rows so the log is tamper-evident.
+### Next: hash-chaining
+
+Now worth doing, because the log finally names people. `AUDIT_FIELDS` /
+`canonicalAuditRow()` already fix the serialisation order — including `actor` —
+so the chain covers identity from day one instead of being redesigned around it.
 
 ## Phase 3 — memory
 

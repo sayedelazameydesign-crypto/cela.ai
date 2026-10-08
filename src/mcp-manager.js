@@ -36,7 +36,7 @@ function withTimeout(promise, ms, message) {
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }
 
-export async function connect(spec) {
+export async function connect(spec, actor = "anonymous") {
   if (sessions.has(spec.name)) return sessionState(spec.name);
 
   const log = [];
@@ -84,6 +84,7 @@ export async function connect(spec) {
   };
 
   const sessionId = openSession({
+    actor,
     serverName: spec.name,
     command: [spec.command, ...spec.args].join(" "),
     serverInfo: info.serverInfo,
@@ -144,7 +145,7 @@ export async function inventory(name) {
  * Call a tool, subject to policy, and persist the attempt — successes, denials
  * and failures alike. A gated call blocks here until an operator decides.
  */
-export async function callTool(name, tool, args, { replayOf = null } = {}) {
+export async function callTool(name, tool, args, { replayOf = null, actor = "anonymous" } = {}) {
   const { client, sessionId } = requireSession(name);
 
   const policy = await loadPolicy();
@@ -154,14 +155,14 @@ export async function callTool(name, tool, args, { replayOf = null } = {}) {
   if (verdict.action === "deny") {
     recordCall({
       sessionId, tool, args, error: `Blocked by policy: ${verdict.reason}`,
-      durationMs: 0, replayOf, decision: "denied", policyReason: verdict.reason,
+      durationMs: 0, replayOf, decision: "denied", policyReason: verdict.reason, actor,
     });
     throw new Error(`Blocked by policy: ${verdict.reason}`);
   }
 
   if (verdict.action === "approve") {
     const outcome = await requestApproval(
-      { sessionId, server: name, tool, args, reason: verdict.reason },
+      { sessionId, server: name, tool, args, reason: verdict.reason, requestedBy: actor },
       policy.approvalTimeoutMs ?? 120_000
     );
     approvalId = outcome.id;
@@ -170,7 +171,7 @@ export async function callTool(name, tool, args, { replayOf = null } = {}) {
       recordCall({
         sessionId, tool, args, error: `Approval denied: ${outcome.reason}`,
         durationMs: 0, replayOf, decision: "denied",
-        policyReason: outcome.reason, approvalId,
+        policyReason: outcome.reason, approvalId, actor,
       });
       throw new Error(`Approval denied: ${outcome.reason}`);
     }
@@ -187,14 +188,14 @@ export async function callTool(name, tool, args, { replayOf = null } = {}) {
     const durationMs = performance.now() - started;
     const callId = recordCall({
       sessionId, tool, args, result, durationMs, replayOf,
-      decision, policyReason: verdict.reason, approvalId,
+      decision, policyReason: verdict.reason, approvalId, actor,
     });
     return { callId, sessionId, result, durationMs: Math.round(durationMs), decision };
   } catch (err) {
     const durationMs = performance.now() - started;
     recordCall({
       sessionId, tool, args, error: err.message, durationMs, replayOf,
-      decision, policyReason: verdict.reason, approvalId,
+      decision, policyReason: verdict.reason, approvalId, actor,
     });
     throw err;
   }
