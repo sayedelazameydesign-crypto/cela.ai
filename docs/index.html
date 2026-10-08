@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>واحة · مكتبة المهارات على GitHub Pages</title>
+  <link rel="stylesheet" href="./assets/styles.css">
+  <script src="./assets/search.js" defer></script>
+  <script src="./assets/components.js" defer></script>
+  <script src="./assets/answer.js" defer></script>
+  <script src="./assets/app.js" defer></script>
+</head>
+<body>
+<div class="app-shell">
+  <aside class="sidebar">
+    <a class="brand" href="./" aria-label="واحة الرئيسية"><span class="brand-mark" aria-hidden="true">و</span><span>واحة<small>WAHA / LEARNING SPACE</small></span></a>
+    <div class="side-label">مساحتك</div>
+    <nav aria-label="التنقل الرئيسي">
+      <button class="nav-item active" data-view="discover"><span data-icon="compass"></span>اكتشف المهارات<span class="nav-count">06</span></button>
+      <button class="nav-item" data-view="library"><span data-icon="book"></span>مكتبتي</button>
+      <button class="nav-item" data-view="chats"><span data-icon="message"></span>محادثاتي</button>
+      <button class="nav-item" data-view="assistant"><span data-icon="spark"></span>مساعدك الذكي</button>
+      <button class="nav-item" data-view="workspace"><span data-icon="spark"></span>مساحة العمل<span class="nav-count">AGENT</span></button>
+    </nav>
+    <div class="side-note"><span class="tiny-label">خطوة واحدة كل يوم</span><div class="little-orbit" aria-hidden="true"><span data-icon="spark"></span></div><p>التعلّم يبدأ بسؤال.<br>خلّي فضولك يقودك.</p><span class="small-rule"></span><small>عينات عربية · تجربة MVP</small></div>
+    <div class="sidebar-bottom">
+      <button id="theme-toggle" class="theme-toggle"><span data-icon="moon"></span><span id="theme-label">المظهر الداكن</span></button>
+      <div class="profile"><span class="avatar" id="user-avatar">و</span><div><strong id="user-name">زائر واحة</strong><small id="user-detail">استكشف أولاً، ثم ابدأ</small></div><span class="profile-dot"></span></div>
+    </div>
+  </aside>
+  <main>
+    <header class="topbar"><div class="breadcrumb">واحة <span>/</span> <strong id="breadcrumb-title">اكتشف المهارات</strong></div><div class="top-actions"><span class="version">PAGES</span><button id="help-button" class="icon-button" aria-label="كيفية استخدام واحة"><span data-icon="help"></span></button></div></header>
+    <div class="main-inner">
+      <section id="discovery-view">
+        <div class="hero">
+          <div class="hero-copy"><div class="eyebrow"><span></span>مساحة صغيرة. إمكانيات أكبر.</div><h1>مهارة جديدة،<br><em>بخطوتك أنت.</em></h1><p>اكتشف مهارة، جرّب تمريناً، أو اسأل مساعدك.<br>تعلّم بالعربية، على مهل وبطريقتك.</p><button id="explore-button" class="primary">اكتشف ما يناسبك<span data-icon="arrow"></span></button></div>
+          <div class="hero-art" aria-hidden="true"><div class="orbit-ring ring-one"></div><div class="orbit-ring ring-two"></div><div class="sun"></div><div class="arch arch-back"></div><div class="arch arch-front"></div><div class="plant plant-a"></div><div class="plant plant-b"></div><span class="art-star star-a" data-icon="spark"></span><span class="art-star star-b" data-icon="spark"></span><div class="art-caption">GROW AT YOUR OWN PACE</div></div>
+        </div>
+        <div id="identity-banner" class="identity-banner hidden"><span data-icon="lock"></span><p>هذه مكتبة عامة على GitHub Pages: البحث والتنزيل يعملان هنا. المحادثات وحفظها ومساحة عمل الوكيل تحتاج خادم واحة (مستقلّ أو خلف PromptQL) موصولاً بملف الإعداد.</p></div>
+        <div class="stats-strip"><div><span data-icon="layers"></span><span><strong id="skill-count">6</strong><small>مهارات تجريبية</small></span></div><div><span data-icon="book"></span><span><strong id="installed-count">0</strong><small>مهارات في مكتبتك</small></span></div><div><span data-icon="message"></span><span><strong id="chat-count">0</strong><small>محادثات محفوظة</small></span></div><div class="ai-status"><span class="status-led"></span><span><strong>Gemini</strong><small>غير مُفعّل في نسخة Pages</small></span></div></div>
+        <section id="catalog" class="catalog">
+          <div class="section-heading"><div><div class="eyebrow small" id="catalog-kicker">ابدأ بشيء يثير فضولك</div><h2 id="catalog-title">اختر مهارتك التالية</h2></div><span class="count-label" id="results-count">6 مهارات</span></div>
+          <div class="filters"><div class="search-field"><span data-icon="search"></span><input id="search" type="search" placeholder="ابحث عن مهارة أو موضوع…" aria-label="ابحث عن مهارة"></div><select id="category" aria-label="الفئة"><option value="">كل الفئات</option><option>كتابة</option><option>برمجة</option><option>إنتاجية</option><option>تصميم</option><option>بيانات</option></select><select id="difficulty" aria-label="المستوى"><option value="">كل المستويات</option><option>مبتدئ</option><option>متوسط</option></select></div>
+          <div class="rag-panel hidden" id="rag-panel" aria-live="polite" aria-label="نتائج الاسترجاع"></div>
+          <div class="skill-grid" id="skill-grid" aria-live="polite"><div class="empty-state">جارٍ تحميل المهارات…</div></div>
+        </section>
+        <div class="bottom-note"><span data-icon="shield"></span><p>نسخة Pages ثابتة؛ لا تجمع مفاتيح ولا ترسل طلبات إلى Gemini إلا بعد ربط خادم واحة.<br><span>المهارات عينات عربية، والتنزيل يحفظ ملف JSON فقط. التطبيق الكامل يعمل منفصلاً في بيئة PromptQL.</span></p><span class="handwritten">كل بداية تستحق.</span></div>
+      </section>
+      <section id="chats-view" class="hidden">
+        <div class="section-heading chats-heading"><div><div class="eyebrow small">مساحة للعودة إلى أفكارك</div><h1>محادثاتي</h1><p>تُحفظ تلقائياً. اختر محادثة لتكمل من حيث توقفت.</p></div></div>
+        <div class="chats-grid" id="chats-list"></div>
+      </section>
+      <section id="assistant-view" class="hidden">
+        <div class="section-heading chats-heading"><div><div class="eyebrow small">اسأل، اكتب، خطّط، وتعلّم</div><h1>محادثة مع مساعدك الذكي</h1><p>محادثة عامة داخل واحة. المساعد لا يصل إلى جهازك أو ملفاتك ولا ينفّذ إجراءات نيابةً عنك.</p></div></div>
+        <div class="assistant-start-card">
+          <div class="assistant-start-copy"><span class="skill-icon mint"><span data-icon="spark"></span></span><div><strong>ابدأ محادثة جديدة</strong><p>اسأل عن أي موضوع. تحفظ المحادثة في حسابك عند ربط خادم واحة.</p></div></div>
+          <div class="assistant-controls"><label class="assistant-provider-label" for="assistant-provider-choice">الموفّر</label><select id="assistant-provider-choice" aria-label="موفّر المساعد الذكي"><option value="gemini">Gemini</option></select><button id="start-assistant-chat" class="primary" type="button" disabled>محادثة جديدة<span data-icon="arrow"></span></button></div>
+        </div>
+        <div id="assistant-error" class="inline-error hidden" role="alert"></div>
+        <div class="section-heading assistant-history-heading"><div><div class="eyebrow small">مساحة للعودة إلى أفكارك</div><h2>محادثات المساعد</h2></div></div>
+        <div class="chats-grid" id="assistant-chats-list" aria-live="polite"></div>
+        <p class="ai-disclaimer">تُرسل رسائلك وسياق المحادثة إلى Gemini لإنشاء الرد. قد تخطئ الإجابات؛ لا تشارك كلمات مرور أو مفاتيح API.</p>
+      </section>
+      <section id="workspace-view" class="hidden">
+        <div class="section-heading chats-heading"><div><div class="eyebrow small">من سؤال إلى نتيجة معلّمة</div><h1>مساحة العمل</h1><p>اكتب هدفك، تخطّط الواحة خطواتها، تستخدم الأدوات عند الحاجة، وتعرض الناتج خطوة بخطوة.</p></div><span class="count-label" id="agent-state-chip">…</span></div>
+        <div id="agent-off" class="identity-banner hidden"></div>
+        <div id="agent-demo-note" class="identity-banner hidden"><span data-icon="shield"></span><p>هذه إجابات تجريبية من وضع العرض في الخادم (<code>AGENT_FAKE=1</code>)؛ لا نموذج ولا اتصال خارجي.</p></div>
+        <details class="system-components" id="system-components">
+          <summary><span data-icon="layers"></span><span>مكوّنات النظام</span><span class="count-label" id="components-chip">…</span></summary>
+          <p class="components-intro">تقرأ هذه اللوحة ما ينشره الخادم فعلاً من <code>/health</code> و<code>/api/agent/config</code>. لا تُلوَّن بطاقة قبل أن يصل ردها، وما لم يُقرأ يُكتب «غير معروف».<button class="secondary tiny-btn" id="components-refresh" type="button">تحديث الحالة</button></p>
+          <div class="components-grid" id="components-grid" aria-live="polite"></div>
+          <p class="components-foot" id="components-foot"></p>
+        </details>
+        <div class="agent-grid">
+          <div class="agent-main" id="agent-main-panel">
+            <div class="agent-mode-bar">
+              <span class="tiny-label">وضع العمل</span>
+              <div class="agent-mode-toggle" role="group" aria-label="تبديل وضع العمل">
+                <button class="mode-btn active" data-mode="agent" type="button"><span data-icon="spark"></span>وكيل المهام</button>
+                <button class="mode-btn" data-mode="chat" type="button"><span data-icon="message"></span>المحادثة المباشرة</button>
+              </div>
+            </div>
+            <form id="agent-form" class="agent-composer">
+              <label class="sr-only" for="agent-goal">هدفك</label>
+              <textarea id="agent-goal" rows="3" maxlength="4000" placeholder="مثال: قارن بين تعلم بايثون و javascript لمدة شهرين، ثم أعطني جدولاً وخطة أسبوعية." required></textarea>
+              <div class="composer-bottom"><span><span class="status-led"></span><span id="agent-budget">…</span></span><select id="agent-provider" class="agent-provider" aria-label="مزوّد النموذج"></select><button id="agent-submit" class="primary" type="submit">ابدأ المهمة<span data-icon="send"></span></button></div>
+            </form>
+            <div id="agent-error" class="inline-error hidden" role="alert"></div>
+            <div id="agent-active" class="agent-card hidden">
+              <div class="agent-card-head"><strong id="agent-task-goal"></strong><span id="agent-task-status" class="agent-pill"></span></div>
+              <div class="agent-progress"><span id="agent-progress-bar"></span></div>
+              <div id="agent-plan" class="agent-plan"></div>
+              <ol id="agent-steps" class="agent-steps" aria-live="polite"></ol>
+              <div id="agent-approvals" class="agent-approvals hidden" role="alert"></div>
+              <div class="agent-card-foot"><span id="agent-usage" class="agent-usage"></span><span id="agent-stream-hint" class="agent-hint"></span><button id="agent-cancel" class="secondary">إلغاء</button><button id="agent-delete" class="secondary">حذف المهمة</button></div>
+              <details class="agent-events"><summary>سجل الأحداث</summary><ul id="agent-events"></ul></details>
+            </div>
+            <div id="agent-history" class="agent-history"></div>
+            <div class="agent-tools-strip"><span class="tiny-label">الأدوات المتاحة الآن</span><div id="agent-tools-list"></div></div>
+          </div>
+          <aside class="agent-side" id="agent-side-panel">
+            <div class="agent-card" id="artifact-card">
+              <div class="artifact-card-head">
+                <h3>لوحة العرض</h3>
+                <div class="artifact-tabs" id="artifact-tabs" role="tablist">
+                  <button class="tab-btn active" data-tab="preview" type="button">معاينة</button>
+                  <button class="tab-btn" data-tab="code" type="button">الكود</button>
+                  <button class="tab-btn" data-tab="files" type="button">الملفات</button>
+                  <button class="tab-btn" data-tab="changes" type="button">التغييرات</button>
+                </div>
+              </div>
+              <p class="agent-note">الملفات التي تنتجها المهمة تُعاين داخل إطار معزول؛ السكربت متوقف إلا لو شغّلته بنفسك.</p>
+              <div id="agent-artifacts" class="agent-artifacts"></div>
+
+              <div id="tab-pane-preview" class="tab-pane active">
+                <label id="artifact-run-row" class="agent-run-toggle"><input type="checkbox" id="artifact-run"> تشغيل السكربتات في هذه المعاينة</label>
+                <div class="agent-preview"><iframe id="artifact-frame" title="معاينة ناتج الواحة" sandbox=""></iframe></div>
+              </div>
+
+              <div id="tab-pane-code" class="tab-pane hidden">
+                <div class="code-view-container">
+                  <div class="code-version-bar">
+                    <span id="artifact-version-tag" class="tiny-label">الإصدار: v1</span>
+                    <select id="artifact-version-select" class="tiny-select hidden" aria-label="اختر الإصدار"></select>
+                  </div>
+                  <pre id="artifact-code-view" class="code-box ltr" dir="ltr"><code>لم يُختر ملف بعد.</code></pre>
+                </div>
+              </div>
+
+              <div id="tab-pane-files" class="tab-pane hidden">
+                <ul id="artifact-files-list" class="artifact-files-list"></ul>
+              </div>
+
+              <div id="tab-pane-changes" class="tab-pane hidden">
+                <div id="artifact-changes-view" class="changes-view ltr" dir="ltr">
+                  <p class="agent-empty">لا تغييرات مسجلة.</p>
+                </div>
+              </div>
+
+              <div class="agent-preview-actions">
+                <span id="artifact-name" class="agent-file-name ltr" dir="ltr">لم تُختَر ملف</span>
+                <button id="artifact-download" class="secondary tiny-btn" type="button">تنزيل</button>
+                <button id="artifact-copy" class="secondary tiny-btn" type="button">نسخ</button>
+              </div>
+            </div>
+            <div class="agent-card">
+              <h3>ذاكرة الواحة</h3>
+              <p class="agent-note">ملاحظات قصيرة تُقرأ كسياق في مهامك القادمة؛ ليست تعليمات ولا أوامر.</p>
+              <ul id="memory-list" class="memory-list"></ul>
+              <form id="memory-form" class="memory-form"><label class="sr-only" for="memory-input">ملاحظة جديدة</label><input id="memory-input" maxlength="400" placeholder="أفضّل الشرح القصير مع مثال"><select id="memory-kind" aria-label="نوع الملاحظة"><option value="note">ملاحظة</option><option value="preference">تفضيل</option><option value="goal">هدف</option></select><button class="secondary" type="submit">إضافة</button></form>
+            </div>
+          </aside>
+        </div>
+        <nav class="mobile-sheet-nav" id="mobile-sheet-nav" aria-label="تبويب الهاتف">
+          <button class="sheet-tab active" data-sheet="tasks" type="button"><span data-icon="spark"></span>المهام</button>
+          <button class="sheet-tab" data-sheet="steps" type="button"><span data-icon="compass"></span>الخطوات</button>
+          <button class="sheet-tab" data-sheet="files" type="button"><span data-icon="book"></span>الملفات</button>
+          <button class="sheet-tab" data-sheet="artifact" type="button"><span data-icon="layers"></span>المعاينة</button>
+        </nav>
+        <div class="bottom-note"><span data-icon="shield"></span><p>لا يشغّل خادم الواحة كوداً ولا يفتح ملفات على جهازك، ولا يتصل بمواقع خارجية إلا بعد موافقتك في كل مرة.<br><span>الأدوات شبكة محدودة ومفتوحة المصدر؛ لا تعتبرها بديلاً من بيئة تنفيذ حقيقية.</span></p></div>
+      </section>
+      <section id="conversation-view" class="hidden">
+        <div class="conversation-header"><button id="chat-back" class="secondary"><span data-icon="arrow"></span>رجوع</button><div><h2 id="conversation-title"></h2><p id="conversation-mode"></p></div><div class="chat-tools"><button id="export-chat" class="icon-button" aria-label="تحميل المحادثة JSON"><span data-icon="download"></span></button><button id="delete-chat" class="icon-button danger" aria-label="حذف المحادثة"><span data-icon="trash"></span></button></div></div>
+        <div class="messages" id="messages" aria-live="polite"></div>
+        <div id="chat-error" class="inline-error hidden" role="alert"></div>
+        <form id="message-form" class="composer"><label class="sr-only" for="message-input">رسالتك</label><textarea id="message-input" placeholder="اكتب سؤالك… أو جرّب المثال المقترح" rows="2" maxlength="6000" required></textarea><div class="composer-bottom"><span><span class="status-led"></span>Gemini · حفظ تلقائي · 30 طلباً / ساعة</span><button id="send-message" class="primary" type="submit">إرسال<span data-icon="send"></span></button></div></form>
+        <p class="ai-disclaimer">يُرسل نص هذه المحادثة إلى Gemini لإنشاء الرد. راجع الإجابات قبل الاعتماد عليها.</p>
+      </section>
+    </div>
+    <footer><span>واحة · مساحة للتعلّم والتجربة</span><span>مصنوعة بخطوات صغيرة <span class="footer-star" data-icon="spark"></span></span></footer>
+  </main>
+</div>
+<dialog id="skill-dialog"><div class="dialog-header"><span class="tiny-label">مساحتك للتعلّم</span><button class="icon-button close-dialog" aria-label="إغلاق"><span data-icon="close"></span></button></div><div id="skill-detail"></div><div class="dialog-actions"><button id="install-skill" class="secondary"><span data-icon="plus"></span>أضف لمكتبتي</button><button id="download-skill" class="secondary"><span data-icon="download"></span>تنزيل JSON</button></div><h3 class="mode-title">كيف تحب تبدأ؟</h3><div class="mode-options"><label><input type="radio" name="mode" value="guided" checked><span data-icon="book"></span><strong>شرح موجه</strong><small>فكرة، مثال، وخطوات</small></label><label><input type="radio" name="mode" value="exercise"><span data-icon="pen"></span><strong>تمرين</strong><small>جرّب بنفسك</small></label><label><input type="radio" name="mode" value="quiz"><span data-icon="spark"></span><strong>اختبار</strong><small>اختبر فهمك</small></label></div><div id="dialog-error" class="inline-error hidden" role="alert"></div><button id="start-session" class="primary full">ابدأ جلسة تعلّم<span data-icon="arrow"></span></button><p class="dialog-footnote">يُنشئ محادثة محفوظة ويضيف المهارة إلى مكتبتك. لا يبدأ طلب AI حتى ترسل رسالتك.</p></dialog>
+<dialog id="help-dialog"><div class="dialog-header"><h2>أهلاً بك في واحة</h2><button class="icon-button close-dialog" aria-label="إغلاق"><span data-icon="close"></span></button></div><ol class="help-steps"><li><strong>اكتشف مهارة</strong><p>ابحث أو فلتر حسب الفئة والمستوى. المهارات الست عينات للتجربة.</p></li><li><strong>حمّل بيانات المهارة</strong><p>تنزيل JSON يعمل دون تسجيل. أزرار الحفظ والتعلّم غير مُفعّلة في نسخة Pages.</p></li><li><strong>اسأل مساعدك الذكي</strong><p>من القائمة الجانبية ابدأ محادثة عامة تحفظ على خادم واحة المتصل؛ لا يصل المساعد إلى جهازك أو ملفاتك.</p></li><li><strong>استخدم التطبيق الكامل</strong><p>خادم واحة المستقل يدعم المحادثات الخاصة والحفظ وGemini ومساحة عمل الوكيل؛ Pages نفسها لا تستضيف Python أو SQLite.</p></li></ol><div class="help-notice">تطبيق مستقل عن صفحة مراجعة الوثيقة؛ لا يقرأ Google Docs ولا يعدّلها. لا يشغّل الكود أو يحمّل إضافات تنفيذية. تنزيل المهارة يعني تنزيل بياناتها وقالب توجيهها فقط.</div><button class="primary full close-dialog">جاهز، لنبدأ</button></dialog>
+<div class="toast hidden" id="toast" role="status"></div>
+</body>
+</html>

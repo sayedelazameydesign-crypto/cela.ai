@@ -1,0 +1,58 @@
+# Render blueprint for the standalone Waha backend.
+# Docs: deploy from repo root; the service lives in backend/.
+# The health check is deliberately /health (shallow): keep-alive pings must not
+# wake a scale-to-zero Neon Postgres and burn free-tier CU-hours.
+services:
+  - type: web
+    name: waha-backend
+    runtime: python
+    plan: free
+    region: ohio
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    # --threads 8: the agent page holds an event stream (SSE) open per viewer.
+    # With one sync worker and no threads, that stream would block every other
+    # request on the free instance.
+    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --workers 1 --threads 8 --timeout 90
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12"
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: WAHA_SECRET
+        generateValue: true
+      - key: WAHA_ALLOWED_ORIGINS
+        value: https://sayedelazameydesign-crypto.github.io
+      # Agent layer (backend/agent/*). Defaults are tuned for the free instance:
+      # one worker thread, a short loop, and no outbound fetch unless opted in.
+      - key: AGENT_NETWORK_TOOLS
+        value: "0"
+      - key: AGENT_MAX_STEPS
+        value: "5"
+      - key: AGENT_TASK_DEADLINE_SECONDS
+        value: "180"
+      # Host hardening uses Render's runtime RENDER_EXTERNAL_HOSTNAME automatically.
+      # For a custom domain, add its exact hostname to WAHA_TRUSTED_HOSTS (no scheme,
+      # port or wildcard), and run deploy_doctor with that value in service.env.
+      # Owner integrations (backend/integrations/*, page at /integrations).
+      # Deliberately NOT declared as envVars: `sync: false` would make Render prompt
+      # for seven values on every blueprint deploy, and the surface degrades safely
+      # without them (every /api/owner/* call answers 503 not_configured rather than
+      # pretending to work). Add them by hand in the dashboard when you want the page
+      # live -- see README, "تكاملات المالك".
+      #   WAHA_OWNER_TOKEN      openssl rand -hex 32   (opens the page; server-only)
+      #   GITHUB_TOKEN          actions:read + actions:write for dispatch
+      #   GITHUB_REPO           owner/name
+      #   GITHUB_WORKFLOW_ID    e.g. ci.yml
+      #   VERCEL_TOKEN          read scope only
+      #   VERCEL_PROJECT_ID
+      #   RENDER_API_KEY        Render account → Settings → API Keys
+      #   RENDER_SERVICE_ID     srv-… of the service being deployed
+      #   RENDER_DEPLOY_HOOK_URL  Service → Settings → Deploy Hooks (URL = secret)
+      #   GOOGLE_DRIVE_ACCESS_TOKEN  short-lived, for a trial only; or the trio
+      #   GOOGLE_DRIVE_REFRESH_TOKEN + GOOGLE_DRIVE_CLIENT_ID
+      #   GOOGLE_DRIVE_CLIENT_SECRET   (+ GOOGLE_DRIVE_FOLDER_ID for one folder)
+      #   DEPLOY_HOOK_URL       the URL *is* the deploy credential
