@@ -155,6 +155,71 @@ def sensitivity_rows() -> list[dict]:
     return rows
 
 
+SWEEP_VALUES = [round(0.05 * i, 2) for i in range(1, 11)]  # 0.05 .. 0.50
+
+
+def _scores_with_weight(k: int, x: float) -> list[float]:
+    """Scores when criterion k gets weight x and the other weights are rescaled proportionally."""
+    base = [w for _, w, _ in CRITERIA]
+    wk = base[k]
+    weights = [x if i == k else base[i] * (1 - x) / (1 - wk) for i in range(len(CRITERIA))]
+    return _scores_for(weights)
+
+
+def sweep_table() -> list[dict]:
+    """One-way sweep per criterion: winner at each sweep value and the nearest tipping point.
+
+    Scores are linear in a criterion's weight, so the exact crossing weight between
+    the base winner b and an alternative j solves A_b + B_b*x = A_j + B_j*x.
+    """
+    base_weights = [w for _, w, _ in CRITERIA]
+    base_winner = winner_index(_scores_for(base_weights))
+    out = []
+    for k, (name, wk, _) in enumerate(CRITERIA):
+        # Linear coefficients: score_j(x) = A[j] + x * B[j]
+        T = [sum(base_weights[i] * SCORES[i][j] for i in range(len(CRITERIA))) for j in range(len(ALTERNATIVES))]
+        A = [(T[j] - wk * SCORES[k][j]) / (1 - wk) for j in range(len(ALTERNATIVES))]
+        B = [SCORES[k][j] - A[j] for j in range(len(ALTERNATIVES))]
+
+        tip = None  # (alternative index, exact weight)
+        for j in range(len(ALTERNATIVES)):
+            if j == base_winner:
+                continue
+            denom = B[j] - B[base_winner]
+            if abs(denom) < 1e-12:
+                continue
+            x = (A[base_winner] - A[j]) / denom
+            if 0 < x < 1 and abs(x - wk) > 1e-9:
+                if tip is None or abs(x - wk) < abs(tip[1] - wk):
+                    tip = (j, x)
+
+        winners = [
+            ALTERNATIVES[winner_index(_scores_with_weight(k, x))] for x in SWEEP_VALUES
+        ]
+        out.append(
+            {
+                "criterion": name,
+                "weight": wk,
+                "winners": winners,
+                "tipping": tip,
+            }
+        )
+    return out
+
+
+def nearest_tipping_point() -> tuple[str, float, str] | None:
+    """Criterion whose tipping point is closest to its base weight: (criterion, weight, new winner)."""
+    best = None
+    for row in sweep_table():
+        if row["tipping"] is None:
+            continue
+        j, x = row["tipping"]
+        dist = abs(x - row["weight"])
+        if best is None or dist < best[0]:
+            best = (dist, row["criterion"], x, ALTERNATIVES[j])
+    return None if best is None else (best[1], best[2], best[3])
+
+
 def _fmt(x: float) -> str:
     return f"{x:.2f}"
 
@@ -297,7 +362,39 @@ def build_workbook(path: Path) -> None:
             cell.alignment = CENTER
     _set_widths(ws5, [28] + [14] * len(ALTERNATIVES) + [14, 16])
 
-    # Sheet 6: implementation and follow-up
+    # Sheet 6: one-way sweep and tipping points (computed values)
+    ws6s = wb.create_sheet("مسح الحساسية")
+    ws6s.sheet_view.rightToLeft = True
+    ws6s.append(
+        [
+            "الخانات تُظهر الفائز عند كل وزن للمعيار، مع إعادة تطبيع بقية الأوزان تناسبيًا. "
+            "نقطة الانقلاب محسوبة تحليليًا لأن الدرجات خطية في الوزن."
+        ]
+    )
+    ws6s.merge_cells(start_row=1, start_column=1, end_row=1, end_column=4 + len(SWEEP_VALUES))
+    ws6s.cell(row=1, column=1).font = Font(italic=True)
+    ws6s.append(
+        ["المعيار", "الوزن الحالي"]
+        + [f"{x:.2f}" for x in SWEEP_VALUES]
+        + ["نقطة الانقلاب", "الفائز بعدها"]
+    )
+    _style_header(ws6s, 2, 4 + len(SWEEP_VALUES))
+    for row in sweep_table():
+        tip = row["tipping"]
+        ws6s.append(
+            [row["criterion"], f"{row['weight']:.2f}"]
+            + row["winners"]
+            + [
+                f"{tip[1]:.3f}" if tip else "لا يوجد ضمن 0–1",
+                ALTERNATIVES[tip[0]] if tip else "—",
+            ]
+        )
+    for row in ws6s.iter_rows(min_row=3, max_row=ws6s.max_row, min_col=1, max_col=4 + len(SWEEP_VALUES)):
+        for cell in row:
+            cell.alignment = CENTER
+    _set_widths(ws6s, [28, 12] + [11] * len(SWEEP_VALUES) + [18, 14])
+
+    # Sheet 7: implementation and follow-up
     ws6 = wb.create_sheet("خطة التنفيذ والمتابعة")
     ws6.sheet_view.rightToLeft = True
     ws6.append(["النشاط", "المسؤول", "الموعد", "الموارد", "مؤشر النجاح", "الحالة"])
@@ -357,6 +454,15 @@ def build_csv(out_dir: Path) -> None:
         "06-plan.csv",
         [["النشاط", "المسؤول", "الموعد", "الموارد", "مؤشر النجاح", "الحالة"]] + [list(r) for r in PLAN],
     )
+    sweep_rows = [["المعيار", "الوزن الحالي"] + [f"{x:.2f}" for x in SWEEP_VALUES] + ["نقطة الانقلاب", "الفائز بعدها"]]
+    for row in sweep_table():
+        tip = row["tipping"]
+        sweep_rows.append(
+            [row["criterion"], f"{row['weight']:.2f}"]
+            + row["winners"]
+            + [f"{tip[1]:.3f}" if tip else "لا يوجد ضمن 0–1", ALTERNATIVES[tip[0]] if tip else "—"]
+        )
+    write("07-sweep.csv", sweep_rows)
 
 
 # ---------------------------------------------------------------------------
@@ -398,6 +504,15 @@ def _add_body(slide, lines: list[str], top: float = 1.7, height: float = 5.0, si
     box = slide.shapes.add_textbox(Inches(0.7), Inches(top), Inches(12.0), Inches(height))
     _fill_text(box.text_frame, lines, size=size)
     return box
+
+
+def tipping_line() -> str:
+    tp = nearest_tipping_point()
+    if tp is None:
+        return "• لا تنقلب النتيجة عند أي وزن ضمن 0–1 لأي معيار"
+    crit, x, alt = tp
+    base = next(w for n, w, _ in CRITERIA if n == crit)
+    return f"• أقرب نقطة انقلاب: {crit} عند الوزن {x:.2f} (الحالي {base:.2f}) ويصبح الفائز {alt}"
 
 
 def build_deck(path: Path) -> None:
@@ -452,7 +567,8 @@ def build_deck(path: Path) -> None:
         [
             f"• البديل الأعلى درجة: {best} ({_fmt(scores[order[0]])})",
             f"• الفارق عن البديل الثاني: {gap:.2f} نقطة",
-            f"• الفائز ثابت في {stable} من {len(sens) - 1} سيناريو حساسية",
+            f"• الفائز ثابت في {stable} من {len(sens) - 1} سيناريو حساسية (±10%)",
+            tipping_line(),
         ],
     )
 
@@ -494,6 +610,7 @@ def build_deck(path: Path) -> None:
                 for j in range(len(ALTERNATIVES))
             ),
             f"الفائز ثابت في {stable} من {len(sens) - 1} سيناريو حساسية (تغيير الأوزان ±10%)",
+            tipping_line(),
             "[المخاطر وخطة التعامل معها]",
         ],
     )
@@ -524,6 +641,7 @@ def main() -> None:
     print("Weighted scores:", dict(zip(ALTERNATIVES, scores)))
     stable = sum(1 for r in sensitivity_rows()[1:] if not r["changed"])
     print(f"Winner stable in {stable} of {len(CRITERIA) * 2} sensitivity scenarios")
+    print("Tipping points:", [(r["criterion"], round(r["tipping"][1], 3), ALTERNATIVES[r["tipping"][0]]) for r in sweep_table() if r["tipping"]])
     print(f"Wrote {out / EXCEL_NAME}")
     print(f"Wrote {out / PPTX_NAME}")
     print(f"Wrote CSV files to {out / 'csv'}")
