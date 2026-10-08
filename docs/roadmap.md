@@ -40,21 +40,31 @@ Everything below runs today.
   linked to the original so you can compare.
 - **Export** — JSON and CSV per session.
 
-## Phase 2 — governance (next)
+## Phase 2 — governance: shipped (except RBAC)
 
-Ordered by what the current schema already supports:
+Policy lives in `policy.json` and is **re-read on every call**, so an operator can
+tighten rules on a live console without restarting it.
 
-1. **Approval gates** — mark tools as sensitive; hold the call and require a
-   click before dispatch. (Needs a pending-call state + SSE/WebSocket push.)
-2. **Per-session limits** — max calls per tool, max total payload, max duration.
-   The counters already exist in `sessions`; this is policy evaluation before dispatch.
-3. **Audit trail** — the `calls` table is already an append-only log. Hardening
-   means hash-chaining rows and recording the acting principal.
-4. **Kill switch** — `shutdownAll()` exists; it needs a UI control and a
-   session-level `end_reason = 'killed'`.
+- **Approval gates.** A rule with `"action": "approve"` holds the call — the HTTP
+  request stays open — until an operator approves or denies it in the UI, or the
+  timeout expires. The verdict is persisted with the deciding principal.
+- **Limits.** Per-tool (`limits.maxCallsPerSession`) and per-session
+  (`sessionLimits.maxCalls`, `maxPayloadBytes`). Denied calls are recorded but
+  excluded from the counters they would otherwise inflate.
+- **Audit trail.** Every call row carries `decision` (`allowed` / `approved` /
+  `denied`), `policy_reason` and `approval_id`; the `approvals` table records
+  state, reason, decider and timestamps. Approvals left pending by a crash are
+  marked `expired` at startup.
+- **Kill switch.** Denies every waiting approval and terminates every MCP child
+  process; affected sessions close with `end_reason = 'killed'`.
 
-Honest prerequisite: **there is no identity model yet.** RBAC is meaningless
-until the console knows who the caller is. Auth comes before permissions.
+**Not done, and deliberately so: RBAC.** Permissions are meaningless while the
+console has no identity model — today every caller is an anonymous operator.
+**Authentication must land before roles.** This is the single blocking item for
+Phase 2 being credible to an engineering team, and it is the natural home for
+the Auth0 dependency that started this repo.
+
+Hardening still open: hash-chaining audit rows so the log is tamper-evident.
 
 ## Phase 3 — memory
 

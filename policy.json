@@ -1,0 +1,26 @@
+{
+  "$comment": "Policy evaluated before every tool call. Longest matching rule wins; 'default' applies when nothing matches.",
+  "default": { "action": "allow" },
+  "rules": [
+    {
+      "match": { "tool": "read_file" },
+      "action": "allow",
+      "limits": { "maxCallsPerSession": 50 }
+    },
+    {
+      "match": { "tool": "repo_summary" },
+      "action": "approve",
+      "reason": "Walks the whole repository tree — demonstrates the approval gate."
+    },
+    {
+      "match": { "toolPattern": "^(write|delete|exec|run_|create_|update_|deploy)" },
+      "action": "approve",
+      "reason": "Mutating or executing tool."
+    }
+  ],
+  "sessionLimits": {
+    "maxCalls": 200,
+    "maxPayloadBytes": 5242880
+  },
+  "approvalTimeoutMs": 120000
+}

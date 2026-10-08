@@ -3,6 +3,8 @@ import path from "node:path";
 import { loadServers, ROOT } from "./config.js";
 import * as mcp from "./mcp-manager.js";
 import * as store from "./db.js";
+import * as approvals from "./approvals.js";
+import { loadPolicy } from "./policy.js";
 
 const app = express();
 app.use(express.json({ limit: "1mb" }));
@@ -67,6 +69,32 @@ app.post(
   })
 );
 
+/* ---------- governance: approvals, policy, kill switch ---------- */
+
+app.get(
+  "/api/approvals",
+  route(async () => ({ pending: approvals.listPending(), history: store.listApprovals(25) }))
+);
+
+app.post(
+  "/api/approvals/:id/decide",
+  route(async (req) => {
+    const { approve } = req.body ?? {};
+    if (typeof approve !== "boolean") throw new Error('Body must include boolean "approve".');
+    return { decided: approvals.decide(req.params.id, approve) };
+  })
+);
+
+app.get(
+  "/api/policy",
+  route(async () => ({ policy: await loadPolicy() }))
+);
+
+app.post(
+  "/api/kill",
+  route(async () => mcp.killSwitch())
+);
+
 /* ---------- history: sessions, timeline, replay, export ---------- */
 
 app.get(
@@ -121,6 +149,9 @@ app.get("/api/sessions/:id/export", async (req, res) => {
   }
 });
 
+const staleApprovals = store.reconcilePendingApprovals();
+if (staleApprovals) console.log(`Expired ${staleApprovals} approval(s) left pending by a previous run.`);
+
 const orphans = store.reconcileOrphans();
 if (orphans) console.log(`Closed ${orphans} session(s) left open by a previous run.`);
 
@@ -131,7 +162,7 @@ const server = app.listen(port, "0.0.0.0", () => {
 
 for (const signal of ["SIGINT", "SIGTERM"]) {
   process.on(signal, async () => {
-    await mcp.shutdownAll();
+    await mcp.shutdownAll("console shutdown");
     server.close(() => process.exit(0));
   });
 }

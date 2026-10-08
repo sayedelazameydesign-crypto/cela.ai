@@ -1,7 +1,9 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { ROOT } from "./config.js";
-import { openSession, closeSession, recordCall } from "./db.js";
+import { openSession, closeSession, recordCall, sessionStats } from "./db.js";
+import { loadPolicy, evaluate } from "./policy.js";
+import { requestApproval, denyAll } from "./approvals.js";
 
 const CONNECT_TIMEOUT_MS = 90_000;
 const MAX_LOG_LINES = 200;
@@ -108,11 +110,11 @@ export async function connect(spec) {
   return sessionState(spec.name);
 }
 
-export async function disconnect(name) {
+export async function disconnect(name, reason = "disconnected") {
   const session = sessions.get(name);
   if (!session) return;
   sessions.delete(name);
-  closeSession(session.sessionId, "disconnected");
+  closeSession(session.sessionId, reason);
   await session.client.close().catch(() => {});
 }
 
@@ -138,23 +140,75 @@ export async function inventory(name) {
   return result;
 }
 
-/** Call a tool and persist the attempt — successes and failures alike. */
+/**
+ * Call a tool, subject to policy, and persist the attempt — successes, denials
+ * and failures alike. A gated call blocks here until an operator decides.
+ */
 export async function callTool(name, tool, args, { replayOf = null } = {}) {
   const { client, sessionId } = requireSession(name);
+
+  const policy = await loadPolicy();
+  const verdict = evaluate(policy, { server: name, tool }, sessionStats(sessionId));
+  let approvalId = null;
+
+  if (verdict.action === "deny") {
+    recordCall({
+      sessionId, tool, args, error: `Blocked by policy: ${verdict.reason}`,
+      durationMs: 0, replayOf, decision: "denied", policyReason: verdict.reason,
+    });
+    throw new Error(`Blocked by policy: ${verdict.reason}`);
+  }
+
+  if (verdict.action === "approve") {
+    const outcome = await requestApproval(
+      { sessionId, server: name, tool, args, reason: verdict.reason },
+      policy.approvalTimeoutMs ?? 120_000
+    );
+    approvalId = outcome.id;
+
+    if (!outcome.approved) {
+      recordCall({
+        sessionId, tool, args, error: `Approval denied: ${outcome.reason}`,
+        durationMs: 0, replayOf, decision: "denied",
+        policyReason: outcome.reason, approvalId,
+      });
+      throw new Error(`Approval denied: ${outcome.reason}`);
+    }
+
+    // The session may have been killed while the approval sat waiting.
+    if (!sessions.has(name)) throw new Error(`Session for "${name}" ended before approval was granted.`);
+  }
+
+  const decision = approvalId ? "approved" : "allowed";
   const started = performance.now();
 
   try {
     const result = await client.callTool({ name: tool, arguments: args ?? {} });
     const durationMs = performance.now() - started;
-    const callId = recordCall({ sessionId, tool, args, result, durationMs, replayOf });
-    return { callId, sessionId, result, durationMs: Math.round(durationMs) };
+    const callId = recordCall({
+      sessionId, tool, args, result, durationMs, replayOf,
+      decision, policyReason: verdict.reason, approvalId,
+    });
+    return { callId, sessionId, result, durationMs: Math.round(durationMs), decision };
   } catch (err) {
     const durationMs = performance.now() - started;
-    recordCall({ sessionId, tool, args, error: err.message, durationMs, replayOf });
+    recordCall({
+      sessionId, tool, args, error: err.message, durationMs, replayOf,
+      decision, policyReason: verdict.reason, approvalId,
+    });
     throw err;
   }
 }
 
-export async function shutdownAll() {
-  await Promise.all([...sessions.keys()].map(disconnect));
+export async function shutdownAll(reason = "disconnected") {
+  denyAll("Console shutting down.");
+  await Promise.all([...sessions.keys()].map((name) => disconnect(name, reason)));
+}
+
+/** Emergency stop: refuse every waiting approval and tear down every child process. */
+export async function killSwitch() {
+  const deniedApprovals = denyAll("Kill switch engaged.");
+  const names = [...sessions.keys()];
+  await Promise.all(names.map((name) => disconnect(name, "killed")));
+  return { deniedApprovals, killedSessions: names };
 }

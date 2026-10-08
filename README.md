@@ -9,7 +9,7 @@ npm install
 npm start          # http://localhost:3000  (override with PORT=…)
 ```
 
-**Status:** Phase 1 ("glass box") is shipped — see [`docs/roadmap.md`](docs/roadmap.md).
+**Status:** Phases 1 ("glass box") and 2 ("governor", minus RBAC) are shipped — see [`docs/roadmap.md`](docs/roadmap.md).
 
 ## What it does
 
@@ -29,6 +29,10 @@ npm start          # http://localhost:3000  (override with PORT=…)
 - **Timeline, replay and export.** Browse past sessions, re-run any stored call
   against a live connection (linked to the original for comparison), and export
   a session as JSON or CSV.
+- **Governs calls before they run.** `policy.json` (hot-reloaded on every call)
+  can allow, gate or deny a tool. Gated calls block until an operator clicks
+  Approve or Deny in the UI; per-tool and per-session limits deny automatically;
+  a kill switch denies all pending approvals and terminates every child process.
 - **Shows real failures.** If a server dies during startup its stderr is captured
   and returned instead of a bare "connection closed", which is what you actually
   need to debug an MCP launch.
@@ -39,6 +43,9 @@ npm start          # http://localhost:3000  (override with PORT=…)
 | --- | --- |
 | `src/server.js` | Express API + static hosting |
 | `src/config.js` | Discovers and normalises server definitions |
+| `policy.json` | Governance rules (hot-reloaded) |
+| `src/policy.js` | Policy evaluation: allow / approve / deny |
+| `src/approvals.js` | Holds gated calls until a human decides |
 | `src/db.js` | SQLite schema, session/call recording, queries |
 | `src/mcp-manager.js` | Connection lifecycle, inventory, tool calls, stderr capture |
 | `mcp-servers/demo.js` | Bundled demo MCP server (`echo`, `list_files`, `read_file`, `repo_summary`) |
@@ -57,6 +64,10 @@ npm start          # http://localhost:3000  (override with PORT=…)
 | `GET` | `/api/sessions/:id` — session + full call timeline |
 | `GET` | `/api/sessions/:id/export?format=json\|csv` |
 | `POST` | `/api/calls/:id/replay` |
+| `GET` | `/api/approvals` — pending + recent decisions |
+| `POST` | `/api/approvals/:id/decide` — body `{ "approve": true }` |
+| `GET` | `/api/policy` |
+| `POST` | `/api/kill` — emergency stop |
 
 ## The two servers you'll see
 
@@ -79,6 +90,9 @@ verbatim. See [`docs/mcp-auth0.md`](docs/mcp-auth0.md).
 
 ## Scope / caveats
 
+- **No identity model yet.** Every operator is anonymous, so there are no roles —
+  authentication is the prerequisite for RBAC. Do not expose this console beyond
+  a trusted machine.
 - **Byte counts are not token counts.** This console sits between an MCP client
   and an MCP server; the protocol carries no LLM usage data. Payload size drives
   model cost but is not model cost. Anything claiming otherwise would be invented.

@@ -49,9 +49,34 @@ db.exec(`
     created_at   TEXT    NOT NULL
   );
 
+  CREATE TABLE IF NOT EXISTS approvals (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id  INTEGER NOT NULL REFERENCES sessions(id),
+    server      TEXT    NOT NULL,
+    tool        TEXT    NOT NULL,
+    args        TEXT    NOT NULL,
+    reason      TEXT,
+    state       TEXT    NOT NULL DEFAULT 'pending',
+    decision_reason TEXT,
+    decided_by  TEXT,
+    created_at  TEXT    NOT NULL,
+    decided_at  TEXT
+  );
+
   CREATE INDEX IF NOT EXISTS idx_calls_session ON calls(session_id, seq);
   CREATE INDEX IF NOT EXISTS idx_sessions_server ON sessions(server_name, started_at DESC);
 `);
+
+/** Additive migrations for databases created by an earlier version. */
+function addColumn(table, column, definition) {
+  const existing = db.prepare(`PRAGMA table_info(${table})`).all();
+  if (!existing.some((c) => c.name === column)) {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+  }
+}
+addColumn("calls", "decision", "TEXT NOT NULL DEFAULT 'allowed'");
+addColumn("calls", "policy_reason", "TEXT");
+addColumn("calls", "approval_id", "INTEGER");
 
 const now = () => new Date().toISOString();
 const bytes = (value) => Buffer.byteLength(typeof value === "string" ? value : JSON.stringify(value ?? null), "utf8");
@@ -79,14 +104,15 @@ export function closeSession(sessionId, reason = "disconnected") {
   );
 }
 
-export function recordCall({ sessionId, tool, args, result, error, durationMs, replayOf }) {
+export function recordCall({ sessionId, tool, args, result, error, durationMs, replayOf, decision, policyReason, approvalId }) {
   const seqRow = db.prepare(`SELECT COALESCE(MAX(seq), 0) + 1 AS next FROM calls WHERE session_id = ?`).get(sessionId);
   const isError = error ? 1 : result?.isError ? 1 : 0;
 
   const stmt = db.prepare(
     `INSERT INTO calls (session_id, seq, tool, args, result, error, is_error,
-                        bytes_in, bytes_out, duration_ms, replay_of, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+                        bytes_in, bytes_out, duration_ms, replay_of, created_at,
+                        decision, policy_reason, approval_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   );
   const info = stmt.run(
     sessionId,
@@ -100,7 +126,10 @@ export function recordCall({ sessionId, tool, args, result, error, durationMs, r
     result ? bytes(result) : 0,
     Math.round(durationMs),
     replayOf ?? null,
-    now()
+    now(),
+    decision ?? "allowed",
+    policyReason ?? null,
+    approvalId ?? null
   );
   return Number(info.lastInsertRowid);
 }
@@ -147,5 +176,60 @@ export function reconcileOrphans() {
   const info = db
     .prepare(`UPDATE sessions SET ended_at = started_at, end_reason = 'orphaned' WHERE ended_at IS NULL`)
     .run();
+  return Number(info.changes);
+}
+
+/* ---------- governance ---------- */
+
+export function recordApproval({ sessionId, server, tool, args, reason }) {
+  const info = db
+    .prepare(
+      `INSERT INTO approvals (session_id, server, tool, args, reason, state, created_at)
+       VALUES (?, ?, ?, ?, ?, 'pending', ?)`
+    )
+    .run(sessionId, server, tool, JSON.stringify(args ?? {}), reason ?? null, now());
+  return Number(info.lastInsertRowid);
+}
+
+export function decideApproval(id, state, decisionReason, decidedBy) {
+  db.prepare(
+    `UPDATE approvals SET state = ?, decision_reason = ?, decided_by = ?, decided_at = ?
+     WHERE id = ? AND state = 'pending'`
+  ).run(state, decisionReason ?? null, decidedBy ?? null, now(), id);
+}
+
+export function listApprovals(limit = 50) {
+  return db
+    .prepare(`SELECT * FROM approvals ORDER BY id DESC LIMIT ?`)
+    .all(limit)
+    .map((row) => ({ ...row, args: JSON.parse(row.args) }));
+}
+
+/** Live counters a policy decision needs. */
+export function sessionStats(sessionId) {
+  const totals = db
+    .prepare(
+      `SELECT COUNT(*) AS calls, COALESCE(SUM(bytes_in + bytes_out), 0) AS payloadBytes
+       FROM calls WHERE session_id = ? AND decision != 'denied'`
+    )
+    .get(sessionId);
+  const byTool = db
+    .prepare(
+      `SELECT tool, COUNT(*) AS n FROM calls
+       WHERE session_id = ? AND decision != 'denied' GROUP BY tool`
+    )
+    .all(sessionId);
+  return {
+    calls: totals.calls,
+    payloadBytes: totals.payloadBytes,
+    callsByTool: Object.fromEntries(byTool.map((r) => [r.tool, r.n])),
+  };
+}
+
+/** Mark any approval rows still pending at shutdown so none dangle forever. */
+export function reconcilePendingApprovals() {
+  const info = db
+    .prepare(`UPDATE approvals SET state = 'expired', decided_at = ?, decided_by = 'restart' WHERE state = 'pending'`)
+    .run(now());
   return Number(info.changes);
 }

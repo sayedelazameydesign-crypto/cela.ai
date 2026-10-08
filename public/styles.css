@@ -194,3 +194,36 @@ a.link[aria-disabled="true"] { opacity: 0.4; pointer-events: none; }
   padding: 8px; font-size: 11px; max-height: 180px; overflow: auto; white-space: pre-wrap; word-break: break-word;
 }
 .footnote { margin-top: 14px; font-size: 11px; opacity: 0.8; }
+
+/* ---------- governance ---------- */
+
+.danger { background: transparent; color: var(--danger); border: 1px solid var(--danger); font-weight: 600; }
+.danger:hover:not(:disabled) { background: var(--danger); color: #1a0505; }
+
+.pending-badge {
+  font-size: 11px; color: var(--warn); border: 1px solid var(--warn);
+  border-radius: 999px; padding: 4px 10px; animation: pulse 1.6s ease-in-out infinite;
+}
+@keyframes pulse { 50% { opacity: 0.45; } }
+
+.approval-tray { padding: 0 16px; margin-top: 14px; display: flex; flex-direction: column; gap: 10px; }
+.approval {
+  border: 1px solid var(--warn); background: #1d1708; border-radius: 12px; padding: 14px 16px;
+  display: grid; grid-template-columns: 1fr auto; gap: 12px; align-items: center;
+}
+.approval h3 { color: var(--warn); margin-bottom: 6px; }
+.approval .tool { font-size: 14px; font-weight: 600; }
+.approval .why { font-size: 12px; color: var(--muted); margin: 4px 0 0; line-height: 1.5; }
+.approval pre {
+  margin: 8px 0 0; background: #0d111a66; border: 1px solid var(--line); border-radius: 6px;
+  padding: 8px; font-size: 11px; max-height: 120px; overflow: auto; white-space: pre-wrap;
+}
+.approval .choices { display: flex; gap: 8px; }
+.approve-btn { background: var(--accent); color: #06231f; border: none; font-weight: 600; padding: 9px 18px; }
+.deny-btn { background: transparent; color: var(--danger); border: 1px solid var(--danger); padding: 9px 18px; }
+.call .decision {
+  font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em;
+  border: 1px solid var(--line); border-radius: 999px; padding: 1px 7px; color: var(--muted);
+}
+.call .decision.approved { color: var(--accent); border-color: var(--accent); }
+.call .decision.denied { color: var(--danger); border-color: var(--danger); }

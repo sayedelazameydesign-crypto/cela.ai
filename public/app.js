@@ -295,6 +295,94 @@ function esc(value) {
   return String(value ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 }
 
+/* ---------- approval gates + kill switch ---------- */
+
+async function pollApprovals() {
+  try {
+    const { pending } = await api("/api/approvals");
+    renderApprovals(pending);
+  } catch {
+    /* transient: the console may be restarting */
+  }
+}
+
+function renderApprovals(pending) {
+  const tray = $("approval-tray");
+  const badge = $("pending-badge");
+  tray.hidden = pending.length === 0;
+  badge.hidden = pending.length === 0;
+  badge.textContent = `${pending.length} awaiting approval`;
+  tray.innerHTML = "";
+
+  for (const req of pending) {
+    const card = document.createElement("div");
+    card.className = "approval";
+
+    const left = document.createElement("div");
+    left.innerHTML =
+      `<h3>Approval required</h3>` +
+      `<div class="tool">${esc(req.server)} › ${esc(req.tool)}</div>` +
+      `<p class="why">${esc(req.reason ?? "")} · expires ${new Date(req.expiresAt).toLocaleTimeString()}</p>`;
+    const pre = el("pre");
+    pre.textContent = JSON.stringify(req.args, null, 2);
+    left.append(pre);
+
+    const choices = document.createElement("div");
+    choices.className = "choices";
+    const approve = el("button", { className: "approve-btn", textContent: "Approve" });
+    const deny = el("button", { className: "deny-btn", textContent: "Deny" });
+    approve.onclick = () => decide(req.id, true, choices);
+    deny.onclick = () => decide(req.id, false, choices);
+    choices.append(deny, approve);
+
+    card.append(left, choices);
+    tray.append(card);
+  }
+}
+
+async function decide(id, approve, container) {
+  for (const b of container.querySelectorAll("button")) b.disabled = true;
+  try {
+    await api(`/api/approvals/${id}/decide`, { method: "POST", body: JSON.stringify({ approve }) });
+  } catch (err) {
+    showResult({ error: err.message });
+  }
+  await pollApprovals();
+}
+
+async function killAll() {
+  if (!confirm("Kill switch: deny every pending approval and terminate all MCP child processes?")) return;
+  const btn = $("kill");
+  btn.disabled = true;
+  try {
+    const data = await api("/api/kill", { method: "POST" });
+    showResult({
+      result: {
+        content: [
+          {
+            type: "text",
+            text: `Kill switch engaged.\nDenied approvals: ${data.deniedApprovals}\nTerminated sessions: ${
+              data.killedSessions.join(", ") || "(none)"
+            }`,
+          },
+        ],
+      },
+      durationMs: 0,
+    });
+    state.active = null;
+    state.inventory = null;
+    state.tool = null;
+    $("tools-view").hidden = true;
+    $("tools-empty").hidden = false;
+    renderRunner();
+  } catch (err) {
+    showResult({ error: err.message });
+  } finally {
+    btn.disabled = false;
+    await Promise.all([loadServers(), loadSessions(), pollApprovals()]);
+  }
+}
+
 /* ---------- session history ---------- */
 
 async function loadSessions(preferId) {
@@ -353,6 +441,7 @@ async function showSession(id) {
       `<span class="tool">${esc(call.tool)}` +
       (call.replay_of ? ` <em>replay of #${call.replay_of}</em>` : "") +
       `</span>` +
+      `<span class="decision ${esc(call.decision)}">${esc(call.decision)}</span>` +
       `<span class="num">${call.duration_ms} ms</span>` +
       `<span class="num">↑${fmtBytes(call.bytes_in)}</span>` +
       `<span class="num">↓${fmtBytes(call.bytes_out)}</span>`;
@@ -410,6 +499,10 @@ function fmtBytes(n) {
 }
 
 const truncate = (text, max) => (text.length > max ? `${text.slice(0, max)}\n… (${text.length} chars)` : text);
+
+$("kill").onclick = killAll;
+setInterval(pollApprovals, 2000);
+pollApprovals();
 
 $("session-select").onchange = (e) => e.target.value && showSession(e.target.value);
 $("run").onclick = runTool;
