@@ -1,0 +1,20 @@
+{
+  "name": "cela-ai",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "cela.ai MCP Console — inspect, connect to and call tools on the MCP servers declared in this repo.",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "demo-server": "node mcp-servers/demo.js"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "express": "^4.21.2",
+    "zod": "^3.23.8"
+  }
+}

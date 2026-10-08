@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "cela-demo": {
+      "command": "node",
+      "args": ["mcp-servers/demo.js"]
+    }
+  }
+}

@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>cela.ai — MCP Console</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">
+        <span class="dot"></span>
+        <h1>cela<span>.ai</span></h1>
+        <span class="tag">MCP Console</span>
+      </div>
+      <button id="refresh" class="ghost">Reload config</button>
+    </header>
+
+    <main class="layout">
+      <aside class="panel servers">
+        <h2>Declared servers</h2>
+        <p class="hint">Read from <code>.mcp.json</code>, <code>.cursor/</code>, <code>.vscode/</code>, <code>mcp.local.json</code>.</p>
+        <ul id="server-list" class="server-list"></ul>
+        <div id="problems" class="problems" hidden></div>
+      </aside>
+
+      <section class="panel tools">
+        <div id="tools-empty" class="empty">
+          <h2>No server connected</h2>
+          <p>Pick a server on the left and hit <strong>Connect</strong>. The console spawns it over stdio, performs the MCP handshake, and lists whatever it advertises.</p>
+        </div>
+        <div id="tools-view" hidden>
+          <div class="server-head">
+            <h2 id="server-title"></h2>
+            <div id="server-meta" class="meta"></div>
+          </div>
+          <div class="inventory">
+            <div>
+              <h3>Tools <span id="tool-count" class="count">0</span></h3>
+              <ul id="tool-list" class="tool-list"></ul>
+            </div>
+            <div id="extras"></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel runner">
+        <div id="runner-empty" class="empty"><h2>No tool selected</h2><p>Select a tool to build a call.</p></div>
+        <div id="runner-view" hidden>
+          <h2 id="tool-title"></h2>
+          <p id="tool-desc" class="desc"></p>
+          <form id="tool-form" class="form"></form>
+          <button id="run" class="primary">Run tool</button>
+          <div id="result" class="result" hidden></div>
+        </div>
+      </section>
+    </main>
+
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>
