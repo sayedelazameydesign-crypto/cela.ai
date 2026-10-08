@@ -772,122 +772,129 @@ def tipping_line() -> str:
     return f"• أقرب نقطة انقلاب: {crit} عند الوزن {x:.2f} (الحالي {base:.2f}) ويصبح الفائز {alt}"
 
 
-def build_deck(path: Path) -> None:
-    prs = Presentation()
-    cp = prs.core_properties
-    cp.author = BUILD_AUTHOR
-    cp.last_modified_by = BUILD_AUTHOR
-    cp.created = BUILD_TIMESTAMP
-    cp.modified = BUILD_TIMESTAMP
-    cp.revision = 1
-    prs.slide_width = Inches(13.333)
-    prs.slide_height = Inches(7.5)
-
+def build_outline() -> list[dict]:
+    """Single source for slide content. Rendered to PowerPoint and to slides.md."""
     scores = weighted_scores()
     rnk = ranks(scores)
     best = ALTERNATIVES[winner_index(scores)]
     sens = sensitivity_rows()
     stable = sum(1 for r in sens[1:] if not r["changed"])
+    order = sorted(range(len(ALTERNATIVES)), key=lambda j: -scores[j])
+    gap = scores[order[0]] - scores[order[1]]
 
-    # 1. Cover
-    cover = prs.slides.add_slide(prs.slide_layouts[0])
-    cover.shapes.title.text = "تحليل البيانات واتخاذ القرار"
-    _rtl(cover.shapes.title.text_frame.paragraphs[0])
-    cover.placeholders[1].text = "من البيانات إلى القرار"
-    _rtl(cover.placeholders[1].text_frame.paragraphs[0])
+    table_rows = [["المعيار", "الوزن"] + [f"البديل {a}" for a in ALTERNATIVES]]
+    for i, (name, weight, _) in enumerate(CRITERIA):
+        table_rows.append([name, f"{weight:.2f}"] + [str(SCORES[i][j]) for j in range(len(ALTERNATIVES))])
+    table_rows.append(["الدرجة المرجحة", ""] + [_fmt(s) for s in scores])
 
-    # 2. Problem
-    s = _slide_with_title(prs, "المشكلة")
-    _add_body(s, [PROBLEM["المشكلة"]])
-
-    # 3. Decision required
-    s = _slide_with_title(prs, "القرار المطلوب")
-    _add_body(s, [PROBLEM["القرار المطلوب"], f"صاحب القرار: {PROBLEM['صاحب القرار']}"])
-
-    # 4. Data and sources
-    s = _slide_with_title(prs, "البيانات والمصادر")
-    _add_body(s, ["[مصادر البيانات وحجمها وفترتها]"])
-
-    # 5. Methodology
-    s = _slide_with_title(prs, "منهجية التحليل")
-    _add_body(
-        s,
-        [
+    return [
+        {"kind": "cover", "title": "تحليل البيانات واتخاذ القرار", "lines": ["من البيانات إلى القرار"]},
+        {"kind": "text", "title": "المشكلة", "lines": [PROBLEM["المشكلة"]]},
+        {"kind": "text", "title": "القرار المطلوب",
+         "lines": [PROBLEM["القرار المطلوب"], f"صاحب القرار: {PROBLEM['صاحب القرار']}"]},
+        {"kind": "text", "title": "البيانات والمصادر", "lines": ["[مصادر البيانات وحجمها وفترتها]"]},
+        {"kind": "text", "title": "منهجية التحليل", "lines": [
             "• وصفي: ماذا حدث؟",
             "• تشخيصي: لماذا حدث؟",
             "• تنبؤي: ماذا سيحدث؟",
             "• توجيهي: ماذا نفعل؟",
-            "• تقييم: مصفوفة قرار مرجحة، واختبار حساسية للأوزان (±10%)",
-        ],
-    )
-
-    # 6. Findings
-    s = _slide_with_title(prs, "النتائج والرؤى")
-    order = sorted(range(len(ALTERNATIVES)), key=lambda j: -scores[j])
-    gap = scores[order[0]] - scores[order[1]]
-    _add_body(
-        s,
-        [
+            "• تقييم: مصفوفة قرار مرجحة، واختبار حساسية للأوزان (±10%) ومسح أحادي لنقاط الانقلاب، وهامش أمان، وانقلاب ثنائي",
+        ]},
+        {"kind": "text", "title": "النتائج والرؤى", "lines": [
             f"• البديل الأعلى درجة: {best} ({_fmt(scores[order[0]])})",
             f"• الفارق عن البديل الثاني: {gap:.2f} نقطة",
             f"• الفائز ثابت في {stable} من {len(sens) - 1} سيناريو حساسية (±10%)",
             tipping_line(),
             margin_line(),
             joint_line(),
-        ],
-    )
-
-    # 7. Alternatives
-    s = _slide_with_title(prs, "البدائل المطروحة")
-    _add_body(s, [f"• {a}" for a in ALTERNATIVES])
-
-    # 8. Evaluation matrix (table)
-    s = _slide_with_title(prs, "مصفوفة التقييم")
-    rows = len(CRITERIA) + 2
-    cols = 2 + len(ALTERNATIVES)
-    table = s.shapes.add_table(rows, cols, Inches(0.7), Inches(1.6), Inches(12.0), Inches(0.55) * rows).table
-    header = ["المعيار", "الوزن"] + [f"البديل {a}" for a in ALTERNATIVES]
-    for c, text in enumerate(header):
-        table.cell(0, c).text = text
-    for r, (name, weight, _) in enumerate(CRITERIA, start=1):
-        table.cell(r, 0).text = name
-        table.cell(r, 1).text = f"{weight:.2f}"
-        for j in range(len(ALTERNATIVES)):
-            table.cell(r, 2 + j).text = str(SCORES[r - 1][j])
-    table.cell(rows - 1, 0).text = "الدرجة المرجحة"
-    table.cell(rows - 1, 1).text = ""
-    for j, sc in enumerate(scores):
-        table.cell(rows - 1, 2 + j).text = _fmt(sc)
-    for r in range(rows):
-        for c in range(cols):
-            for p in table.cell(r, c).text_frame.paragraphs:
-                _rtl(p)
-                p.font.size = Pt(18)
-
-    # 9. Recommendation
-    s = _slide_with_title(prs, "القرار والتوصية")
-    _add_body(
-        s,
-        [
+        ]},
+        {"kind": "text", "title": "البدائل المطروحة", "lines": [f"• {a}" for a in ALTERNATIVES]},
+        {"kind": "table", "title": "مصفوفة التقييم", "rows": table_rows},
+        {"kind": "text", "title": "القرار والتوصية", "lines": [
             f"التوصية: {best} (الدرجة {_fmt(max(scores))})",
             "الترتيب: " + "، ".join(
-                f"{ALTERNATIVES[j]} = {_fmt(scores[j])} (المركز {rnk[j]})"
-                for j in range(len(ALTERNATIVES))
+                f"{ALTERNATIVES[j]} = {_fmt(scores[j])} (المركز {rnk[j]})" for j in range(len(ALTERNATIVES))
             ),
             f"الفائز ثابت في {stable} من {len(sens) - 1} سيناريو حساسية (تغيير الأوزان ±10%)",
             tipping_line(),
             margin_line(),
             "[المخاطر وخطة التعامل معها]",
-        ],
-    )
+        ]},
+        {"kind": "text", "title": "خطة التنفيذ والمتابعة", "lines": [
+            "[المسؤوليات والمواعيد ومؤشرات النجاح]",
+            "التفاصيل الكاملة في implementation-guide.md",
+        ]},
+    ]
 
-    # 10. Implementation and follow-up
-    s = _slide_with_title(prs, "خطة التنفيذ والمتابعة")
-    _add_body(s, ["[المسؤوليات والمواعيد ومؤشرات النجاح]", "التفاصيل الكاملة في implementation-guide.md"])
+
+def _render_pptx(outline: list[dict], path: Path) -> None:
+    prs = Presentation()
+    prs.slide_width = Inches(13.333)
+    prs.slide_height = Inches(7.5)
+    cp = prs.core_properties
+    cp.author = BUILD_AUTHOR
+    cp.last_modified_by = BUILD_AUTHOR
+    cp.created = BUILD_TIMESTAMP
+    cp.modified = BUILD_TIMESTAMP
+    cp.revision = 1
+
+    for item in outline:
+        if item["kind"] == "cover":
+            cover = prs.slides.add_slide(prs.slide_layouts[0])
+            cover.shapes.title.text = item["title"]
+            _rtl(cover.shapes.title.text_frame.paragraphs[0])
+            cover.placeholders[1].text = item["lines"][0]
+            _rtl(cover.placeholders[1].text_frame.paragraphs[0])
+        elif item["kind"] == "text":
+            s = _slide_with_title(prs, item["title"])
+            _add_body(s, item["lines"])
+        elif item["kind"] == "table":
+            s = _slide_with_title(prs, item["title"])
+            rows = item["rows"]
+            n_rows, n_cols = len(rows), len(rows[0])
+            table = s.shapes.add_table(
+                n_rows, n_cols, Inches(0.7), Inches(1.6), Inches(12.0), Inches(0.55) * n_rows
+            ).table
+            for r, row in enumerate(rows):
+                for c, text in enumerate(row):
+                    table.cell(r, c).text = text
+                    for p in table.cell(r, c).text_frame.paragraphs:
+                        _rtl(p)
+                        p.font.size = Pt(18)
 
     path.parent.mkdir(parents=True, exist_ok=True)
     prs.save(path)
-    _freeze_zip_timestamps(path)
+
+
+def _render_slides_md(outline: list[dict], path: Path) -> None:
+    out = [
+        "<!-- Generated by scripts/generate_decision_artifacts.py from SOURCE DATA. Do not edit by hand. -->",
+        "",
+        "# نص شرائح العرض التقديمي",
+        "",
+        f"هذا الملف مُولَّد آليًا من البيانات نفسها التي تُبنى منها الشرائح في `{PPTX_NAME}`. لا تعدّله يدويًا، بل عدّل `SOURCE DATA` في السكربت ثم أعد التوليد.",
+        "",
+    ]
+    for n, item in enumerate(outline, start=1):
+        out += ["---", "", f"## الشريحة {n}: {item['title']}", ""]
+        if item["kind"] == "table":
+            rows = item["rows"]
+            out.append("| " + " | ".join(rows[0]) + " |")
+            out.append("|" + "|".join(["---"] * len(rows[0])) + "|")
+            for row in rows[1:]:
+                out.append("| " + " | ".join(row) + " |")
+            out.append("")
+        else:
+            for line in item["lines"]:
+                text = line[1:].strip() if line.startswith("•") else line
+                out.append(f"- {text}")
+            out.append("")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(out), encoding="utf-8")
+
+
+def build_deck(path: Path) -> None:
+    _render_pptx(build_outline(), path)
 
 
 # ---------------------------------------------------------------------------
@@ -902,6 +909,7 @@ def main() -> None:
     out = Path(args.out_dir)
     build_workbook(out / EXCEL_NAME)
     build_deck(out / PPTX_NAME)
+    _render_slides_md(build_outline(), out / "slides.md")
     build_csv(out)
 
     scores = weighted_scores()
